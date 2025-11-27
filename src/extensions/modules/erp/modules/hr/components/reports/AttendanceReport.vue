@@ -1,0 +1,2 @@
+<template><div class="hr-component"><h4><i class="fas fa-chart-bar"></i> รายงานการลา</h4><p>รายงานการลางานและการเข้างาน</p></div></template>
+<script>export default { name: 'AttendanceReport' }</script>

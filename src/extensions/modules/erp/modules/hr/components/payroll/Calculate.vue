@@ -1,0 +1,2 @@
+<template><div class="hr-component"><h4><i class="fas fa-calculator"></i> คำนวณเงินเดือน</h4><p>คำนวณเงินเดือนประจำเดือน</p></div></template>
+<script>export default { name: 'PayrollCalculate' }</script>

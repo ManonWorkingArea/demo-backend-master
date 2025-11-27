@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Customer Code Manager</title>
+</head>
+<body>
+    <h1>Debug Customer Code Manager</h1>
+    <div id="debug-info"></div>
+    
+    <script type="module">
+        import { ERP_CORE } from './src/extensions/modules/erp/core/index.js'
+        
+        async function debugCustomerCode() {
+            console.log('=== Debug Customer Code Manager ===')
+            
+            // 1. ตรวจสอบ ERP_CORE
+            console.log('1. ERP_CORE status:', {
+                hasERP_CORE: !!ERP_CORE,
+                hasMasterdata: !!ERP_CORE?.masterdata,
+                hasCustomer: !!ERP_CORE?.masterdata?.customer,
+                hasCodeManager: !!ERP_CORE?.codeManager
+            })
+            
+            // 2. ตรวจสอบ Customer Config
+            if (ERP_CORE?.masterdata?.customer?.CUSTOMER_CODE_CONFIG) {
+                const config = ERP_CORE.masterdata.customer.CUSTOMER_CODE_CONFIG
+                console.log('2. Customer Config:', config)
+            } else {
+                console.error('2. Customer Config NOT FOUND!')
+            }
+            
+            // 3. ตรวจสอบ CodeManager
+            if (ERP_CORE?.codeManager) {
+                const codeManager = ERP_CORE.codeManager
+                
+                // Force initialization
+                await codeManager.initialize()
+                
+                console.log('3. CodeManager status:', {
+                    initialized: codeManager.initialized,
+                    patternsCount: codeManager.patterns.size,
+                    patterns: Array.from(codeManager.patterns.keys()),
+                    hasCustomer: codeManager.patterns.has('customer')
+                })
+                
+                // ทดสอบสร้างรหัส Customer
+                try {
+                    const customerCode = await codeManager.generateCode('customer')
+                    console.log('4. Generated Customer Code:', customerCode)
+                } catch (error) {
+                    console.error('4. Error generating customer code:', error)
+                }
+            }
+            
+            // 5. ทดสอบ manual call
+            window.ERP_CORE = ERP_CORE
+            console.log('5. ERP_CORE attached to window')
+        }
+        
+        // เรียกใช้เมื่อโหลดหน้า
+        debugCustomerCode()
+    </script>
+</body>
+</html>

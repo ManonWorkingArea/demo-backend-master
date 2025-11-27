@@ -1,0 +1,2 @@
+<template><div class="hr-component"><h4><i class="fas fa-key"></i> จัดการสิทธิ์ User</h4><p>กำหนด Role และ Permission สำหรับผู้ใช้</p><div class="row"><div class="col-md-6"><h6>Roles ที่มี</h6><ul><li>Admin - สิทธิ์เต็ม</li><li>Manager - จัดการทั่วไป</li><li>HR - ทรัพยากรบุคคล</li><li>Employee - พนักงานทั่วไป</li></ul></div><div class="col-md-6"><h6>Permissions</h6><p>ระบบจะปรับปรุงในอนาคต</p></div></div></div></template>
+<script>export default { name: 'UserPermissions' }</script>

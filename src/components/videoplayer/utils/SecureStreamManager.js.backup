@@ -1,0 +1,618 @@
+/**
+ * SecureStreamManager - จัดการ secure token และ Service Worker สำหรับ video streaming
+ */
+
+export class SecureStreamManager {
+  constructor() {
+    this.SHARED_SALT = 'UniversalPlayer2024';
+    this.sessionId = this.generateSe      console.log('🔑 [2-WAY-ENCODE] Generated encoded stream key:', {
+        originalTimestamp: timestamp,
+        timestampISO: new Date(timestamp).toISOString(),
+        encodedTimestamp: encodedTimestamp,
+        expiresIn: '15 seconds',
+        streamKeyLength: streamKey.length
+      });d();
+    this.serviceWorkerRegistration = null;
+    this.isServiceWorkerActive = false;
+    
+    // One-time token management
+    this.TOKEN_EXPIRES_IN = 15 * 1000; // 15 seconds in milliseconds
+    this.usedTokens = new Set(); // Track used tokens to prevent replay
+    this.tokenCleanupInterval = null;
+    
+    // เก็บ callbacks สำหรับ events
+    this.eventCallbacks = new Map();
+    
+    // Start token cleanup
+    this.startTokenCleanup();
+  }
+
+  // Generate unique session ID
+  generateSessionId() {
+    return 'session_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now();
+  }
+
+  // Generate unique token ID for one-time use
+  generateTokenId() {
+    return 'token_' + Date.now() + '_' + Math.random().toString(36).substring(2, 12);
+  }
+
+  // Start token cleanup to remove expired tokens from memory
+  startTokenCleanup() {
+    if (this.tokenCleanupInterval) {
+      clearInterval(this.tokenCleanupInterval);
+    }
+    
+    this.tokenCleanupInterval = setInterval(() => {
+      const now = Date.now();
+      const expiredTokens = Array.from(this.usedTokens).filter(tokenData => {
+        const [, timestamp] = tokenData.split('_');
+        return now - parseInt(timestamp) > this.TOKEN_EXPIRES_IN * 2; // Keep for 2x expiry time
+      });
+      
+      expiredTokens.forEach(token => this.usedTokens.delete(token));
+      
+      if (expiredTokens.length > 0) {
+        console.log(`🧹 [TOKEN-CLEANUP] Removed ${expiredTokens.length} expired tokens`);
+      }
+    }, 30000); // Cleanup every 30 seconds
+  }
+
+  // Stop token cleanup
+  stopTokenCleanup() {
+    if (this.tokenCleanupInterval) {
+      clearInterval(this.tokenCleanupInterval);
+      this.tokenCleanupInterval = null;
+    }
+  }
+
+  // Generate SHA-256 hash
+  async generateHash(data) {
+    const encoder = new TextEncoder();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(data));
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // Generate one-time stream token with 15-second expiry
+  async generateStreamToken(data, salt = this.SHARED_SALT) {
+    try {
+      const timestamp = Date.now();
+      const tokenId = this.generateTokenId();
+      const expiresAt = timestamp + this.TOKEN_EXPIRES_IN;
+      
+      const payload = {
+        ...data,
+        timestamp,
+        expiresAt,
+        tokenId,
+        sessionId: this.sessionId,
+        oneTime: true, // Mark as one-time token
+        version: 'v2' // Updated version for one-time tokens
+      };
+      
+      const payloadString = JSON.stringify(payload);
+      const dataToHash = payloadString + salt;
+      const hash = await this.generateHash(dataToHash);
+      
+      // Create token structure: base64(payload).hash
+      const encodedPayload = btoa(payloadString);
+      const token = `${encodedPayload}.${hash}`;
+      
+      console.log('🔐 [ONE-TIME-TOKEN] Generated 15-second token:', {
+        tokenId,
+        sessionId: this.sessionId,
+        timestamp: new Date(timestamp).toISOString(),
+        expiresAt: new Date(expiresAt).toISOString(),
+        expiresIn: '15 seconds',
+        tokenLength: token.length,
+        dataKeys: Object.keys(data)
+      });
+      
+      return {
+        token,
+        tokenId,
+        payload,
+        hash,
+        timestamp,
+        expiresAt
+      };
+    } catch (error) {
+      console.error('❌ [TOKEN] Failed to generate one-time stream token:', error);
+      throw error;
+    }
+  }
+
+  // Verify one-time stream token
+  async verifyStreamToken(token, salt = this.SHARED_SALT, markAsUsed = false) {
+    try {
+      const [encodedPayload, receivedHash] = token.split('.');
+      if (!encodedPayload || !receivedHash) {
+        throw new Error('Invalid token format');
+      }
+      
+      const payloadString = atob(encodedPayload);
+      const payload = JSON.parse(payloadString);
+      const now = Date.now();
+      
+      // Check if it's a one-time token
+      if (payload.oneTime && payload.tokenId) {
+        // Check if token was already used
+        if (this.usedTokens.has(payload.tokenId)) {
+          throw new Error('Token already used (one-time token)');
+        }
+        
+        // Check expiration (15 seconds for one-time tokens)
+        if (payload.expiresAt && now > payload.expiresAt) {
+          throw new Error(`Token expired at ${new Date(payload.expiresAt).toISOString()}`);
+        }
+      } else {
+        // Legacy token validation (5 minutes)
+        const tokenAge = now - payload.timestamp;
+        const maxAge = 5 * 60 * 1000; // 5 minutes
+        
+        if (tokenAge > maxAge) {
+          throw new Error('Token expired');
+        }
+      }
+      
+      // Verify hash
+      const dataToHash = payloadString + salt;
+      const expectedHash = await this.generateHash(dataToHash);
+      
+      if (receivedHash !== expectedHash) {
+        throw new Error('Token hash verification failed');
+      }
+      
+      // Mark one-time token as used if requested
+      if (markAsUsed && payload.oneTime && payload.tokenId) {
+        this.usedTokens.add(payload.tokenId);
+        console.log(`🔒 [ONE-TIME-TOKEN] Token ${payload.tokenId} marked as used`);
+      }
+      
+      const tokenAge = now - payload.timestamp;
+      const remainingTime = payload.expiresAt ? payload.expiresAt - now : null;
+      
+      return {
+        valid: true,
+        payload,
+        age: tokenAge,
+        remainingTime,
+        isOneTime: !!payload.oneTime,
+        isUsed: payload.oneTime ? this.usedTokens.has(payload.tokenId) : false
+      };
+    } catch (error) {
+      console.error('❌ [TOKEN] One-time token verification failed:', error);
+      return {
+        valid: false,
+        error: error.message
+      };
+    }
+  }
+
+  // Simple XOR encoding/decoding (2-way)
+  encodeTimestamp(timestamp, salt = this.SHARED_SALT) {
+    const timestampStr = timestamp.toString();
+    let encoded = '';
+    
+    for (let i = 0; i < timestampStr.length; i++) {
+      const charCode = timestampStr.charCodeAt(i);
+      const saltCharCode = salt.charCodeAt(i % salt.length);
+      const encodedChar = charCode ^ saltCharCode;
+      encoded += encodedChar.toString(16).padStart(2, '0');
+    }
+    
+    return encoded;
+  }
+
+  // Decode timestamp back from encoded string
+  decodeTimestamp(encoded, salt = this.SHARED_SALT) {
+    try {
+      let decoded = '';
+      
+      for (let i = 0; i < encoded.length; i += 2) {
+        const hexChar = encoded.substr(i, 2);
+        const encodedChar = parseInt(hexChar, 16);
+        const saltCharCode = salt.charCodeAt((i / 2) % salt.length);
+        const originalChar = encodedChar ^ saltCharCode;
+        decoded += String.fromCharCode(originalChar);
+      }
+      
+      return parseInt(decoded);
+    } catch (error) {
+      throw new Error('Failed to decode timestamp');
+    }
+  }
+
+  // Generate one-time stream key (15 seconds expiry) - 2-way encoded
+  async generateSecureStreamKey() {
+    try {
+      const timestamp = Date.now();
+      
+      // Encode timestamp with salt (2-way encoding)
+      const encodedTimestamp = this.encodeTimestamp(timestamp);
+      
+      // Create stream key: just the encoded timestamp
+      const streamKey = encodedTimestamp;
+      
+      console.log('� [ONE-TIME] Generated one-time stream key:', {
+        timestamp: new Date(timestamp).toISOString(),
+        expiresIn: '15 seconds',
+        streamKeyLength: streamKey.length,
+        hashLength: hash.length
+      });
+      
+      return {
+        streamKey,
+        token: streamKey, // Same as streamKey for backward compatibility
+        sessionId: this.sessionId,
+        timestamp: timestamp,
+        payload: { timestamp, expiresAt: timestamp + 15000 } // 15 seconds
+      };
+    } catch (error) {
+      console.error('❌ [ONE-TIME] Failed to generate one-time stream key:', error);
+      throw error;
+    }
+  }
+
+  // Verify one-time stream key (for server-side validation)
+  async verifyOneTimeStreamKey(streamKey, salt = this.SHARED_SALT) {
+    try {
+      const [timestampStr, receivedHash] = streamKey.split('.');
+      if (!timestampStr || !receivedHash) {
+        return { 
+          valid: false, 
+          error: 'Invalid stream key format',
+          reason: 'Missing timestamp or hash'
+        };
+      }
+      
+      const timestamp = parseInt(timestampStr);
+      const now = Date.now();
+      const age = now - timestamp;
+      const maxAge = 15 * 1000; // 15 seconds
+      
+      // Check expiry first
+      if (age > maxAge) {
+        return { 
+          valid: false, 
+          error: 'Stream key expired',
+          reason: `Key expired ${Math.round(age / 1000)}s ago (max 15s)`,
+          timestamp: new Date(timestamp).toISOString(),
+          age: age
+        };
+      }
+      
+      // Check if timestamp is from future (clock skew protection)
+      if (age < -5000) { // Allow 5s clock skew
+        return { 
+          valid: false, 
+          error: 'Stream key from future',
+          reason: 'Timestamp is too far in the future',
+          timestamp: new Date(timestamp).toISOString()
+        };
+      }
+      
+      // Verify hash
+      const expectedHash = await this.generateHash(timestampStr + salt);
+      if (receivedHash !== expectedHash) {
+        return { 
+          valid: false, 
+          error: 'Invalid stream key hash',
+          reason: 'Hash verification failed - possible tampering'
+        };
+      }
+      
+      return {
+        valid: true,
+        timestamp: timestamp,
+        age: age,
+        remainingTime: maxAge - age,
+        issuedAt: new Date(timestamp).toISOString(),
+        expiresAt: new Date(timestamp + maxAge).toISOString()
+      };
+      
+    } catch (error) {
+      return { 
+        valid: false, 
+        error: 'Stream key verification failed',
+        reason: error.message
+      };
+    }
+  }
+
+  // Decode and show one-time stream key contents (for debugging) 
+  decodeOneTimeStreamKey(streamKey) {
+    try {
+      const [timestampStr, hash] = streamKey.split('.');
+      if (!timestampStr || !hash) {
+        return { error: 'Invalid stream key format' };
+      }
+      
+      const timestamp = parseInt(timestampStr);
+      const now = Date.now();
+      const age = now - timestamp;
+      
+      return {
+        success: true,
+        timestamp: timestamp,
+        hash: hash,
+        age: age,
+        ageSeconds: Math.round(age / 1000),
+        isExpired: age > 15000,
+        remainingSeconds: Math.max(0, Math.round((15000 - age) / 1000)),
+        issuedAt: new Date(timestamp).toISOString(),
+        expiresAt: new Date(timestamp + 15000).toISOString()
+      };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
+  // Static method for content delivery server to verify tokens
+  static async verifyContentDeliveryToken(token, sharedSalt = 'UniversalPlayer2024') {
+    try {
+      const [encodedPayload, receivedHash] = token.split('.');
+      if (!encodedPayload || !receivedHash) {
+        return { valid: false, error: 'Invalid token format' };
+      }
+      
+      const payloadString = atob(encodedPayload);
+      const payload = JSON.parse(payloadString);
+      const now = Date.now();
+      
+      // Verify it's a one-time token
+      if (!payload.oneTime || !payload.tokenId) {
+        return { valid: false, error: 'Not a one-time token' };
+      }
+      
+      // Check expiration (15 seconds)
+      if (payload.expiresAt && now > payload.expiresAt) {
+        return { 
+          valid: false, 
+          error: `Token expired at ${new Date(payload.expiresAt).toISOString()}`,
+          expiredSeconds: Math.floor((now - payload.expiresAt) / 1000)
+        };
+      }
+      
+      // Verify hash
+      const encoder = new TextEncoder();
+      const dataBuffer = encoder.encode(payloadString + sharedSalt);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+      const hashArray = new Uint8Array(hashBuffer);
+      const expectedHash = Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('');
+      
+      if (receivedHash !== expectedHash) {
+        return { valid: false, error: 'Token hash verification failed' };
+      }
+      
+      const remainingTime = payload.expiresAt - now;
+      
+      return {
+        valid: true,
+        payload,
+        tokenId: payload.tokenId,
+        sessionId: payload.sessionId,
+        remainingTime,
+        contentDeliveryData: {
+          origin: payload.origin,
+          userAgent: payload.userAgent,
+          screenResolution: payload.screenResolution,
+          timezone: payload.timezone,
+          language: payload.language
+        }
+      };
+    } catch (error) {
+      return { valid: false, error: error.message };
+    }
+  }
+
+  // Service Worker Management
+  async registerStreamInterceptor() {
+    if (!('serviceWorker' in navigator)) {
+      console.warn('🔧 [SW] Service Worker not supported');
+      return false;
+    }
+
+    try {
+      console.log('🔧 [SW] Registering Stream Interceptor Service Worker...');
+      
+      const registration = await navigator.serviceWorker.register('/stream-interceptor-sw.js', {
+        scope: '/'
+      });
+
+      this.serviceWorkerRegistration = registration;
+      console.log('🔧 [SW] Service Worker registered successfully');
+
+      // Listen for Service Worker messages
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        this.handleServiceWorkerMessage(event);
+      });
+
+      // Handle Service Worker state changes
+      if (registration.installing) {
+        registration.installing.addEventListener('statechange', (event) => {
+          const newWorker = event.target;
+          console.log('🔧 [SW] Installing worker state:', newWorker.state);
+          
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            console.log('🔧 [SW] New Service Worker installed, will activate after refresh');
+          }
+        });
+      }
+
+      if (registration.waiting) {
+        registration.waiting.addEventListener('statechange', (event) => {
+          const newWorker = event.target;
+          console.log('🔧 [SW] Waiting worker state:', newWorker.state);
+          
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            console.log('🔧 [SW] Service Worker waiting to activate');
+          }
+        });
+      }
+
+      if (registration.active) {
+        console.log('🔧 [SW] Service Worker is active');
+        this.isServiceWorkerActive = true;
+        
+        // Emit ready event
+        this.emit('serviceWorkerReady', { registration });
+      }
+
+      // Handle updates
+      registration.addEventListener('updatefound', () => {
+        console.log('🔧 [SW] Service Worker update found');
+        this.emit('serviceWorkerUpdate', { registration });
+      });
+
+      // Test SW communication
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'PING' });
+      }
+
+      return true;
+    } catch (error) {
+      console.error('🔧 [SW] Failed to register Service Worker:', error);
+      return false;
+    }
+  }
+
+  async unregisterStreamInterceptor() {
+    if (this.serviceWorkerRegistration) {
+      try {
+        await this.serviceWorkerRegistration.unregister();
+        this.serviceWorkerRegistration = null;
+        this.isServiceWorkerActive = false;
+        console.log('🔧 [SW] Service Worker unregistered successfully');
+        this.emit('serviceWorkerUnregistered');
+      } catch (error) {
+        console.error('🔧 [SW] Failed to unregister Service Worker:', error);
+      }
+    }
+  }
+
+  // Update secure token in Service Worker
+  async updateSWSecureToken(secureData) {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'UPDATE_SECURE_TOKEN',
+        secureData: secureData
+      });
+      console.log('🔐 [SW-COMM] Secure token sent to Service Worker:', {
+        streamKey: secureData.streamKey,
+        sessionId: secureData.sessionId,
+        tokenLength: secureData.token.length
+      });
+      
+      this.emit('secureTokenUpdated', secureData);
+    }
+  }
+
+  // Clear secure token from Service Worker
+  async clearSWSecureToken() {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'CLEAR_SECURE_TOKEN'
+      });
+      console.log('🔓 [SW-COMM] Secure token cleared from Service Worker');
+      
+      this.emit('secureTokenCleared');
+    }
+  }
+
+  // Handle Service Worker messages
+  handleServiceWorkerMessage(event) {
+    const { type, data, message } = event.data;
+    
+    console.log('📨 [SW-MSG] Received message from Service Worker:', { type, data });
+    
+    switch (type) {
+      case 'PONG':
+        console.log('🏓 [SW-COMM] Service Worker is responsive');
+        this.emit('serviceWorkerPong', { message });
+        break;
+        
+      case 'SECURE_CHUNK_REQUEST_INTERCEPTED':
+        console.log('🔐 [SW-CHUNK] Secure chunk request intercepted:', data);
+        this.emit('secureChunkIntercepted', data);
+        break;
+        
+      case 'CHUNK_REQUEST_INTERCEPTED':
+        console.log('🔑 [SW-CHUNK] Standard chunk request intercepted:', data);
+        this.emit('chunkIntercepted', data);
+        break;
+        
+      case 'SECURE_TOKEN_UPDATED':
+        console.log('✅ [SW-TOKEN] Secure token updated in Service Worker');
+        this.emit('serviceWorkerTokenUpdated', { message });
+        break;
+        
+      case 'SECURE_TOKEN_CLEARED':
+        console.log('🔓 [SW-TOKEN] Secure token cleared from Service Worker');
+        this.emit('serviceWorkerTokenCleared', { message });
+        break;
+        
+      default:
+        console.log('❓ [SW-MSG] Unknown message type:', type);
+    }
+  }
+
+  // Event system
+  on(event, callback) {
+    if (!this.eventCallbacks.has(event)) {
+      this.eventCallbacks.set(event, []);
+    }
+    this.eventCallbacks.get(event).push(callback);
+  }
+
+  off(event, callback) {
+    if (this.eventCallbacks.has(event)) {
+      const callbacks = this.eventCallbacks.get(event);
+      const index = callbacks.indexOf(callback);
+      if (index > -1) {
+        callbacks.splice(index, 1);
+      }
+    }
+  }
+
+  emit(event, data) {
+    if (this.eventCallbacks.has(event)) {
+      this.eventCallbacks.get(event).forEach(callback => {
+        try {
+          callback(data);
+        } catch (error) {
+          console.error(`❌ [EVENT] Error in ${event} callback:`, error);
+        }
+      });
+    }
+  }
+
+  // Utility methods
+  getStatus() {
+    return {
+      sessionId: this.sessionId,
+      isServiceWorkerActive: this.isServiceWorkerActive,
+      hasServiceWorkerRegistration: !!this.serviceWorkerRegistration,
+      eventListeners: Array.from(this.eventCallbacks.keys())
+    };
+  }
+
+  // Reset session
+  resetSession() {
+    this.sessionId = this.generateSessionId();
+    this.usedTokens.clear(); // Clear used tokens for new session
+    console.log('🔄 [SESSION] New session started:', this.sessionId);
+    this.emit('sessionReset', { sessionId: this.sessionId });
+  }
+
+  // Cleanup and destroy
+  destroy() {
+    this.stopTokenCleanup();
+    this.usedTokens.clear();
+    this.eventCallbacks.clear();
+    console.log('🗑️ [SECURE-MANAGER] SecureStreamManager destroyed');
+  }
+}
+
+export default SecureStreamManager;

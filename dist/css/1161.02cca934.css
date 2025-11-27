@@ -1,0 +1,1 @@
+.grid-container,.row{display:flex;flex-direction:column;gap:16px}.grid{display:grid;grid-gap:16px}.item{background-color:#f7fafc;padding:16px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,.1)}.controls{display:flex;gap:16px;align-items:center}

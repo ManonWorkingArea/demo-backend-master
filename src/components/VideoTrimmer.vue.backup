@@ -1,0 +1,2605 @@
+<template>
+  <div v-if="$props.isOpen" class="fixed inset-0 z-50 overflow-y-auto">
+    <!-- Backdrop -->
+    <div 
+      class="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+      @click="closeModal"
+    ></div>
+    
+    <!-- Modal Content -->
+    <div class="flex min-h-full items-center justify-center p-4">
+      <div 
+        class="relative w-full max-w-4xl bg-white rounded-xl shadow-2xl transform transition-all"
+        @click.stop
+      >
+        <!-- Header -->
+        <div class="flex items-center justify-between p-6 border-b border-gray-200">
+          <div class="flex items-center space-x-3">
+            <div class="p-2 bg-blue-100 rounded-lg">
+              <i class="fas fa-cut text-blue-600 text-xl"></i>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold text-gray-900">ตัดต่อวิดีโอ</h3>
+              <p class="text-sm text-gray-500">เลือกช่วงเวลาที่ต้องการตัดจากวิดีโอ</p>
+            </div>
+          </div>
+          <button 
+            @click="closeModal"
+            class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <i class="fas fa-times text-lg"></i>
+          </button>
+        </div>
+        
+        <!-- Video Preview Section -->
+        <div class="p-6 space-y-6">
+          <!-- Video Preview -->
+          <div v-if="videoUrl" class="bg-black rounded-lg overflow-hidden relative">
+            <video 
+              ref="videoRef"
+              :src="videoUrl"
+              class="w-full max-h-96 object-contain"
+              preload="metadata"
+              crossorigin="anonymous"
+              @loadedmetadata="onVideoLoaded"
+              @timeupdate="onTimeUpdate"
+              @click="togglePlayPause"
+            >
+              วิดีโอของคุณไม่สามารถแสดงได้
+            </video>
+            
+            <!-- Custom Video Controls -->
+            <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
+              <!-- Progress Bar -->
+              <div class="mb-3">
+                <div 
+                  class="relative h-2 bg-gray-600 rounded cursor-pointer"
+                  @click="seekFromProgressBar"
+                  @mousedown="startProgressDrag"
+                  ref="progressBarRef"
+                >
+                  <!-- Full progress background -->
+                  <div class="absolute inset-0 bg-gray-600 rounded"></div>
+                  
+                  <!-- Loaded progress (gray) -->
+                  <div 
+                    class="absolute top-0 left-0 h-full bg-gray-500 rounded"
+                    :style="{ width: '100%' }"
+                  ></div>
+                  
+                  <!-- Unused sections (dimmed/faded) -->
+                  <!-- Before start time -->
+                  <div 
+                    class="absolute top-0 left-0 h-full bg-gray-700 opacity-30 rounded-l"
+                    :style="{ width: `${(startTime / videoDuration) * 100}%` }"
+                  ></div>
+                  
+                  <!-- After end time -->
+                  <div 
+                    class="absolute top-0 right-0 h-full bg-gray-700 opacity-30 rounded-r"
+                    :style="{ 
+                      left: `${(endTime / videoDuration) * 100}%`,
+                      width: `${((videoDuration - endTime) / videoDuration) * 100}%`
+                    }"
+                  ></div>
+                  
+                  <!-- Multi-segment indicators (always visible) -->
+                  <div v-if="segments.length > 0" class="absolute inset-0">
+                    <div 
+                      v-for="(segment, index) in segments" 
+                      :key="segment.id"
+                      class="absolute top-0 h-full border-2 border-purple-400 bg-purple-200 bg-opacity-50 z-5 group segment-container"
+                      :class="{ 'segment-dragging': isDraggingSegment && dragSegmentData.segmentId === segment.id }"
+                      :style="{ 
+                        left: `${(segment.start / videoDuration) * 100}%`,
+                        width: `${((segment.end - segment.start) / videoDuration) * 100}%`
+                      }"
+                      :title="`ช่วงที่ ${index + 1}: ${formatTime(segment.start)} - ${formatTime(segment.end)}`"
+                    >
+                      <!-- Segment Number Label -->
+                      <div class="absolute top-1 left-1 text-xs text-purple-800 font-bold bg-white px-1 rounded pointer-events-none">
+                        {{ index + 1 }}
+                      </div>
+                      
+                      <!-- Left drag handle (start time) -->
+                      <div 
+                        v-if="isMultiSegmentMode"
+                        class="absolute top-0 left-0 w-2 h-full bg-purple-600 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-30 segment-drag-handle"
+                        @mousedown="startSegmentDrag(segment.id, 'start', $event)"
+                        title="ลากเพื่อปรับจุดเริ่มต้น"
+                      >
+                        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-0.5 h-6 bg-white rounded"></div>
+                      </div>
+                      
+                      <!-- Right drag handle (end time) -->
+                      <div 
+                        v-if="isMultiSegmentMode"
+                        class="absolute top-0 right-0 w-2 h-full bg-purple-600 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-30 segment-drag-handle"
+                        @mousedown="startSegmentDrag(segment.id, 'end', $event)"
+                        title="ลากเพื่อปรับจุดสิ้นสุด"
+                      >
+                        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-0.5 h-6 bg-white rounded"></div>
+                      </div>
+                      
+                      <!-- Middle drag handle (move entire segment) -->
+                      <div 
+                        v-if="isMultiSegmentMode"
+                        class="absolute top-0 left-2 right-2 h-full cursor-move opacity-0 group-hover:opacity-50 transition-opacity z-25 bg-purple-500 segment-drag-handle"
+                        @mousedown="startSegmentDrag(segment.id, 'move', $event)"
+                        title="ลากเพื่อย้ายช่วงทั้งหมด"
+                      >
+                        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                          <i class="fas fa-arrows-alt text-white text-xs"></i>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- Current Selection Overlay (when in multi-segment mode) -->
+                  <div v-if="isMultiSegmentMode" class="absolute inset-0 z-15">
+                    <!-- Dim everything first -->
+                    <div class="absolute inset-0 bg-black bg-opacity-30"></div>
+                    
+                    <!-- Highlight current selection area -->
+                    <div 
+                      class="absolute top-0 h-full bg-blue-400 bg-opacity-60 border-2 border-blue-500 border-dashed z-20"
+                      :style="{ 
+                        left: `${(startTime / videoDuration) * 100}%`,
+                        width: `${((endTime - startTime) / videoDuration) * 100}%`
+                      }"
+                      title="ช่วงที่กำลังเลือก"
+                    >
+                      <div class="absolute top-1 right-1 text-xs text-blue-800 font-bold bg-white px-1 rounded">
+                        ใหม่
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- Single mode selection (when NOT in multi-segment mode) -->
+                  <div v-else>
+                    <!-- Trim selection background (active area) -->
+                    <div 
+                      class="absolute top-0 h-full bg-gray-400 rounded"
+                      :style="{ 
+                        left: `${(startTime / videoDuration) * 100}%`,
+                        width: `${((endTime - startTime) / videoDuration) * 100}%`
+                      }"
+                    ></div>
+                    
+                    <!-- Current progress - only in selected range -->
+                    <div 
+                      v-if="currentTime >= startTime && currentTime <= endTime"
+                      class="absolute top-0 h-full bg-blue-500 rounded transition-all duration-100"
+                      :style="{ 
+                        left: `${(startTime / videoDuration) * 100}%`,
+                        width: `${((currentTime - startTime) / videoDuration) * 100}%`
+                      }"
+                    ></div>
+                  </div>
+                  
+                  <!-- Unused sections (dimmed/faded) - only in single mode -->
+                  <div v-if="!isMultiSegmentMode">
+                    <!-- Before start time -->
+                    <div 
+                      class="absolute top-0 left-0 h-full bg-gray-700 opacity-30 rounded-l"
+                      :style="{ width: `${(startTime / videoDuration) * 100}%` }"
+                    ></div>
+                    
+                    <!-- After end time -->
+                    <div 
+                      class="absolute top-0 right-0 h-full bg-gray-700 opacity-30 rounded-r"
+                      :style="{ 
+                        left: `${(endTime / videoDuration) * 100}%`,
+                        width: `${((videoDuration - endTime) / videoDuration) * 100}%`
+                      }"
+                    ></div>
+                  </div>
+                  
+                  <!-- Start marker (blue) - always visible but different styles -->
+                  <div 
+                    class="absolute top-0 w-1 h-full border-l-2 z-30"
+                    :class="isMultiSegmentMode ? 'bg-blue-600 border-blue-500' : 'bg-blue-400 border-blue-300'"
+                    :style="{ left: `${(startTime / videoDuration) * 100}%` }"
+                    :title="isMultiSegmentMode ? 'จุดเริ่มต้นช่วงใหม่' : 'จุดเริ่มต้น'"
+                  ></div>
+                  
+                  <!-- End marker (red) - always visible but different styles -->
+                  <div 
+                    class="absolute top-0 w-1 h-full border-l-2 z-30"
+                    :class="isMultiSegmentMode ? 'bg-red-600 border-red-500' : 'bg-red-400 border-red-300'"
+                    :style="{ left: `${(endTime / videoDuration) * 100}%` }"
+                    :title="isMultiSegmentMode ? 'จุดสิ้นสุดช่วงใหม่' : 'จุดสิ้นสุด'"
+                  ></div>
+                  
+                  <!-- Progress handle -->
+                  <div 
+                    class="absolute top-1/2 w-3 h-3 bg-blue-500 border-2 border-white rounded-full shadow-md transform -translate-y-1/2 -translate-x-1.5 cursor-grab active:cursor-grabbing z-20"
+                    :style="{ left: `${(currentTime / videoDuration) * 100}%` }"
+                    @mousedown="startProgressDrag"
+                  ></div>
+                </div>
+              </div>
+              
+              <!-- Control Buttons and Time Display -->
+              <div class="flex items-center justify-between">
+                <!-- Left controls -->
+                <div class="flex items-center space-x-3">
+                  <!-- Play/Pause Button -->
+                  <button 
+                    @click="togglePlayPause"
+                    class="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-colors"
+                  >
+                    <i :class="isVideoPlaying ? 'fas fa-pause' : 'fas fa-play'" class="text-lg"></i>
+                  </button>
+                  
+                  <!-- Skip to Start -->
+                  <button 
+                    @click="seekToTime(startTime)"
+                    class="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-colors"
+                    title="ไปจุดเริ่มต้น"
+                  >
+                    <i class="fas fa-step-backward text-sm"></i>
+                  </button>
+                  
+                  <!-- Skip to End -->
+                  <button 
+                    @click="seekToTime(endTime)"
+                    class="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-colors"
+                    title="ไปจุดสิ้นสุด"
+                  >
+                    <i class="fas fa-step-forward text-sm"></i>
+                  </button>
+                  
+                  <!-- Volume Control -->
+                  <div class="flex items-center space-x-2">
+                    <button 
+                      @click="toggleMute"
+                      class="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-colors"
+                    >
+                      <i :class="isMuted ? 'fas fa-volume-mute' : 'fas fa-volume-up'" class="text-sm"></i>
+                    </button>
+                    <div class="w-16 h-1 bg-gray-600 rounded relative">
+                      <div 
+                        class="absolute top-0 left-0 h-full bg-white rounded"
+                        :style="{ width: `${volume * 100}%` }"
+                      ></div>
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="1" 
+                        step="0.1"
+                        :value="volume"
+                        @input="updateVolume"
+                        class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Center - Time Display -->
+                <div class="text-white text-sm font-mono">
+                  {{ formatTime(currentTime) }} / {{ formatTime(videoDuration) }}
+                </div>
+                
+                <!-- Right controls -->
+                <div class="flex items-center space-x-3">
+                  <!-- Fullscreen Toggle -->
+                  <button 
+                    @click="toggleFullscreen"
+                    class="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white transition-colors"
+                  >
+                    <i class="fas fa-expand text-sm"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Video Info -->
+          <div v-if="videoDuration > 0" class="bg-gray-50 rounded-lg p-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div class="text-center">
+                <div class="text-gray-500">ความยาววิดีโอ</div>
+                <div class="font-semibold text-gray-900">{{ formatTime(videoDuration) }}</div>
+              </div>
+              <div class="text-center">
+                <div class="text-gray-500">ความยาวที่ตัด</div>
+                <div class="font-semibold" :class="trimDuration > 0 ? 'text-blue-600' : 'text-gray-900'">
+                  {{ formatTime(trimDuration) }}
+                </div>
+              </div>
+              <div class="text-center">
+                <div class="text-gray-500">ขนาดประมาณ</div>
+                <div class="font-semibold text-green-600">
+                  {{ Math.round((trimDuration / videoDuration) * 100) }}% ของต้นฉบับ
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Thumbnail Processing Status -->
+          <div v-if="isGeneratingThumbnails" class="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+            <div class="flex items-center justify-center space-x-3 mb-3">
+              <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+              <span class="text-blue-800 font-medium">กำลังประมวลผลวีดีโอ...</span>
+            </div>
+            <div class="text-sm text-blue-600">
+              กำลังสร้าง thumbnail สำหรับ timeline ({{ thumbnailProgress }}/10)
+            </div>
+            <div class="mt-3 w-full bg-blue-200 rounded-full h-2">
+              <div 
+                class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                :style="{ width: ((thumbnailProgress / 10) * 100) + '%' }"
+              ></div>
+            </div>
+          </div>
+
+          <!-- Combined Timeline with Controls -->
+          <div v-else class="space-y-4">
+            <!-- Timeline -->
+            <div class="relative h-16 bg-gray-200 rounded-lg overflow-hidden cursor-pointer" 
+                 @click="onTimelineClick"
+                 ref="timelineRef">
+              <!-- Full timeline -->
+              <div class="absolute inset-0 bg-gradient-to-r from-gray-300 to-gray-400"></div>
+              
+              <!-- Video thumbnail strips -->
+              <div v-if="videoDuration > 0 && thumbnails.length > 0" class="absolute inset-0 flex">
+                <div 
+                  v-for="(thumbnail, index) in thumbnails" 
+                  :key="index"
+                  class="flex-1 bg-cover bg-center border-r border-gray-400 last:border-r-0 opacity-70"
+                  :style="{ 
+                    backgroundImage: `url(${thumbnail.dataUrl})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center'
+                  }"
+                ></div>
+              </div>
+              
+              <!-- Time interval markers -->
+              <div v-if="videoDuration > 0" class="absolute inset-0">
+                <div 
+                  v-for="interval in getTimeIntervals()" 
+                  :key="interval.time"
+                  class="absolute top-0 bottom-0 border-l border-gray-700 opacity-60"
+                  :style="{ left: `${(interval.time / videoDuration) * 100}%` }"
+                >
+                  <!-- Time label -->
+                  <div class="absolute -top-5 left-1/2 transform -translate-x-1/2 text-xs text-gray-800 font-medium whitespace-nowrap bg-white bg-opacity-80 px-1 rounded">
+                    {{ formatTime(interval.time) }}
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Selected range -->
+              <div 
+                class="absolute top-0 bottom-0 bg-gradient-to-r from-blue-500 to-blue-600 opacity-60 border-2 border-blue-600"
+                :style="{
+                  left: `${(startTime / videoDuration) * 100}%`,
+                  width: `${(trimDuration / videoDuration) * 100}%`
+                }"
+              ></div>
+              
+              <!-- Start marker (draggable) -->
+              <div 
+                class="absolute top-0 bottom-0 w-3 bg-blue-700 shadow-lg cursor-ew-resize hover:bg-blue-800 transition-colors z-10"
+                :style="{ left: `calc(${(startTime / videoDuration) * 100}% - 6px)` }"
+                @mousedown="startDrag('start', $event)"
+                title="ลากเพื่อปรับจุดเริ่มต้น"
+              >
+                <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1 h-8 bg-white rounded"></div>
+              </div>
+              
+              <!-- End marker (draggable) -->
+              <div 
+                class="absolute top-0 bottom-0 w-3 bg-red-600 shadow-lg cursor-ew-resize hover:bg-red-700 transition-colors z-10"
+                :style="{ left: `calc(${(endTime / videoDuration) * 100}% - 6px)` }"
+                @mousedown="startDrag('end', $event)"
+                title="ลากเพื่อปรับจุดสิ้นสุด"
+              >
+                <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1 h-8 bg-white rounded"></div>
+              </div>
+              
+              <!-- Current time indicator -->
+              <div 
+                v-if="videoDuration > 0"
+                class="absolute top-0 bottom-0 w-0.5 bg-yellow-400 shadow-lg z-20 pointer-events-none"
+                :style="{ left: `${(currentTime / videoDuration) * 100}%` }"
+              >
+                <div class="absolute -top-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-yellow-400 rounded-full"></div>
+              </div>
+              
+              <!-- Time labels at ends -->
+              <div class="absolute inset-0 flex items-end justify-between px-2 pb-1 text-xs font-medium text-white bg-black bg-opacity-40 pointer-events-none">
+                <span class="bg-black bg-opacity-60 px-1 rounded">{{ formatTime(0) }}</span>
+                <span class="bg-black bg-opacity-60 px-1 rounded">{{ formatTime(videoDuration) }}</span>
+              </div>
+            </div>
+            
+            <!-- Time Controls Row -->
+            <div class="flex items-center justify-between space-x-4">
+              <!-- Start Time Controls -->
+              <div class="flex items-center space-x-2">
+                <label class="text-sm font-medium text-gray-700 whitespace-nowrap">เริ่มต้น:</label>
+                <button 
+                  @click="adjustStartTime(-1)"
+                  class="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-sm transition-colors"
+                  title="ลดเวลาเริ่มต้น 1 วินาที"
+                >
+                  -
+                </button>
+                <input 
+                  type="text" 
+                  :value="formatTime(startTime)"
+                  @blur="updateStartTimeFromInput($event)"
+                  @keyup.enter="updateStartTimeFromInput($event)"
+                  class="w-16 px-2 py-1 text-sm text-center border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="00:00"
+                />
+                <button 
+                  @click="adjustStartTime(1)"
+                  class="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-sm transition-colors"
+                  title="เพิ่มเวลาเริ่มต้น 1 วินาที"
+                >
+                  +
+                </button>
+              </div>
+              
+              <!-- End Time Controls -->
+              <div class="flex items-center space-x-2">
+                <label class="text-sm font-medium text-gray-700 whitespace-nowrap">สิ้นสุด:</label>
+                <button 
+                  @click="adjustEndTime(-1)"
+                  class="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-sm transition-colors"
+                  title="ลดเวลาสิ้นสุด 1 วินาที"
+                >
+                  -
+                </button>
+                <input 
+                  type="text" 
+                  :value="formatTime(endTime)"
+                  @blur="updateEndTimeFromInput($event)"
+                  @keyup.enter="updateEndTimeFromInput($event)"
+                  class="w-16 px-2 py-1 text-sm text-center border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="00:00"
+                />
+                <button 
+                  @click="adjustEndTime(1)"
+                  class="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-sm transition-colors"
+                  title="เพิ่มเวลาสิ้นสุด 1 วินาที"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Preview Controls -->
+          <div v-if="!isGeneratingThumbnails" class="flex justify-center space-x-2">
+            <button 
+              @click="playFromStart"
+              :disabled="isPreviewPlaying"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
+            >
+              <i class="fas fa-play"></i>
+              <span>เล่นตัวอย่าง</span>
+            </button>
+            <button 
+              @click="stopPreview"
+              :disabled="!isPreviewPlaying"
+              class="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
+            >
+              <i class="fas fa-stop"></i>
+              <span>หยุด</span>
+            </button>
+            <button 
+              @click="seekToTime(startTime)"
+              class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
+            >
+              <i class="fas fa-backward"></i>
+              <span>ไปจุดเริ่มต้น</span>
+            </button>
+            <button 
+              @click="seekToTime(endTime)"
+              class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
+            >
+              <i class="fas fa-forward"></i>
+              <span>ไปจุดสิ้นสุด</span>
+            </button>
+          </div>
+          
+          <!-- Multi-Segment Controls -->
+          <div class="space-y-4 border-t border-gray-200 pt-4">
+            <div class="flex items-center justify-between">
+              <h4 class="text-lg font-medium text-gray-900 flex items-center space-x-2">
+                <i class="fas fa-layer-group text-purple-600"></i>
+                <span>โหมดตัดหลายช่วง</span>
+              </h4>
+              <div class="flex items-center space-x-2">
+                <label class="flex items-center cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    v-model="isMultiSegmentMode"
+                    class="sr-only"
+                  />
+                  <div class="relative">
+                    <div class="w-10 h-6 bg-gray-200 rounded-full shadow-inner" 
+                         :class="isMultiSegmentMode ? 'bg-purple-600' : 'bg-gray-200'"></div>
+                    <div class="absolute w-4 h-4 bg-white rounded-full shadow transition-transform top-1" 
+                         :class="isMultiSegmentMode ? 'translate-x-5' : 'translate-x-1'"></div>
+                  </div>
+                </label>
+                <span class="text-sm text-gray-600">
+                  {{ isMultiSegmentMode ? 'เปิด' : 'ปิด' }}
+                </span>
+              </div>
+            </div>
+            
+            <!-- Unified Info Display (always visible) -->
+            <div class="space-y-3">
+              <!-- Timeline Legend -->
+              <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                <h5 class="font-medium text-gray-900 mb-2 flex items-center space-x-2">
+                  <i class="fas fa-info-circle text-blue-600"></i>
+                  <span>คำอธิบาย Timeline</span>
+                </h5>
+                <div class="grid grid-cols-1 gap-2 text-xs">
+                  <div class="flex items-center space-x-3">
+                    <div class="w-4 h-3 bg-purple-200 border-2 border-purple-400 rounded"></div>
+                    <span class="text-gray-700">🟣 ช่วงที่เลือกแล้ว {{ segments.length > 0 ? `(${segments.length} ช่วง)` : '' }}</span>
+                  </div>
+                  <div v-if="isMultiSegmentMode" class="flex items-center space-x-3">
+                    <div class="w-4 h-3 bg-blue-400 bg-opacity-60 border-2 border-blue-500 border-dashed rounded"></div>
+                    <span class="text-gray-700">🔵 ช่วงที่กำลังเลือก (ใหม่)</span>
+                  </div>
+                  <div v-else class="flex items-center space-x-3">
+                    <div class="w-4 h-3 bg-gray-400 rounded"></div>
+                    <span class="text-gray-700">⚪ ช่วงที่เลือก</span>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Current Selection Info -->
+              <div v-if="isMultiSegmentMode" class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h5 class="font-medium text-blue-900 mb-2">ช่วงที่กำลังเลือก</h5>
+                <div class="flex items-center justify-between text-sm">
+                  <span class="text-blue-700">
+                    {{ formatTime(startTime) }} - {{ formatTime(endTime) }}
+                  </span>
+                  <span class="text-blue-600 font-medium">
+                    ระยะเวลา: {{ formatTime(trimDuration) }}
+                  </span>
+                </div>
+                <div class="mt-3">
+                  <button 
+                    @click="addSegment"
+                    :disabled="trimDuration < 0.1"
+                    class="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
+                  >
+                    <i class="fas fa-plus"></i>
+                    <span>เพิ่มช่วงนี้</span>
+                  </button>
+                </div>
+                
+                <!-- Drag Status and Instructions -->
+                <div v-if="isDraggingSegment" class="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                  <i class="fas fa-hand-rock"></i> กำลังลากช่วง... ปล่อยเมื่อพอใจตำแหน่ง
+                </div>
+                <div v-else-if="segments.length > 0" class="mt-2 p-2 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600">
+                  <i class="fas fa-info-circle"></i> เลื่อนเมาส์ไปบนช่วงสีม่วงแล้วลากเพื่อปรับแต่ง
+                </div>
+              </div>
+              
+              <!-- Single Mode Info -->
+              <div v-else class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h5 class="font-medium text-gray-900 mb-2">ช่วงที่เลือก</h5>
+                <div class="flex items-center justify-between text-sm">
+                  <span class="text-gray-700">
+                    {{ formatTime(startTime) }} - {{ formatTime(endTime) }}
+                  </span>
+                  <span class="text-gray-600 font-medium">
+                    ระยะเวลา: {{ formatTime(trimDuration) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            <div v-if="isMultiSegmentMode" class="space-y-4">
+              
+              <!-- Segments List -->
+              <div v-if="segments.length > 0" class="space-y-3">
+                <div class="flex items-center justify-between">
+                  <h5 class="font-medium text-gray-900">ช่วงที่เลือกแล้ว ({{ segments.length }})</h5>
+                  <div class="flex items-center space-x-2">
+                    <span class="text-sm text-gray-600">
+                      รวม: {{ formatTime(getTotalSegmentsDuration()) }}
+                    </span>
+                    <button 
+                      @click="clearAllSegments"
+                      class="px-3 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded-md transition-colors"
+                    >
+                      ลบทั้งหมด
+                    </button>
+                  </div>
+                </div>
+                
+                <div class="max-h-32 overflow-y-auto space-y-2">
+                  <div 
+                    v-for="(segment, index) in segments" 
+                    :key="segment.id"
+                    class="flex items-center justify-between p-3 bg-gray-50 rounded-lg border hover:bg-gray-100 transition-colors"
+                  >
+                    <div class="flex-1">
+                      <div class="flex items-center space-x-3">
+                        <span class="text-sm font-medium text-gray-900">
+                          #{{ index + 1 }}
+                        </span>
+                        <span class="text-sm text-gray-600">
+                          {{ formatTime(segment.start) }} - {{ formatTime(segment.end) }}
+                        </span>
+                        <span class="text-xs text-gray-500 bg-white px-2 py-1 rounded">
+                          {{ formatTime(segment.duration) }}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                      <button 
+                        @click="selectSegment(segment)"
+                        class="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 rounded transition-colors"
+                        title="แก้ไข"
+                      >
+                        <i class="fas fa-edit"></i>
+                      </button>
+                      <button 
+                        @click="removeSegment(segment.id)"
+                        class="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors"
+                        title="ลบ"
+                      >
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Video Sequence Preview -->
+                <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <h5 class="font-medium text-green-900 mb-3 flex items-center space-x-2">
+                    <i class="fas fa-video text-green-600"></i>
+                    <span>ลำดับวีดีโอสุดท้าย</span>
+                  </h5>
+                  
+                  <!-- Timeline Preview -->
+                  <div class="relative">
+                    <div class="flex space-x-1 h-6 bg-gray-200 rounded overflow-hidden">
+                      <div 
+                        v-for="(segment, index) in segments" 
+                        :key="segment.id"
+                        class="bg-gradient-to-r from-purple-400 to-purple-600 flex items-center justify-center text-white text-xs font-bold video-sequence-segment cursor-pointer"
+                        :style="{ 
+                          flex: `${segment.duration}`,
+                          minWidth: '30px'
+                        }"
+                        :title="`ช่วงที่ ${index + 1}: ${formatTime(segment.start)} - ${formatTime(segment.end)} (${formatTime(segment.duration)})`"
+                        @click="selectSegment(segment)"
+                      >
+                        {{ index + 1 }}
+                      </div>
+                    </div>
+                    
+                    <!-- Time markers -->
+                    <div class="flex justify-between mt-1 text-xs text-green-600">
+                      <span>0:00</span>
+                      <span class="font-medium">{{ formatTime(getTotalSegmentsDuration()) }}</span>
+                    </div>
+                  </div>
+                  
+                  <!-- Sequence Summary -->
+                  <div class="mt-3 p-2 bg-white rounded border text-xs">
+                    <div class="font-medium text-green-800 mb-1">ลำดับการต่อ:</div>
+                    <div class="text-green-700">
+                      <span v-for="(segment, index) in segments" :key="segment.id">
+                        {{ formatTime(segment.start) }}-{{ formatTime(segment.end) }}
+                        <span v-if="index < segments.length - 1" class="mx-1 text-green-500">→</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Unified Timeline Display -->
+              <div class="unified-timeline-container mt-6">
+                <div class="timeline-header mb-4">
+                  <h4 class="text-lg font-semibold text-gray-900 flex items-center">
+                    <i class="fas fa-film mr-2 text-purple-600"></i>
+                    Video Timeline Overview
+                  </h4>
+                  <div class="timeline-info flex items-center space-x-4 text-sm text-gray-600 mt-1">
+                    <span class="segment-count">{{ segments.length }} segments selected</span>
+                    <span class="total-duration">Total output: {{ Math.round(getTotalSegmentsDuration()) }}s</span>
+                    <span class="recommended-duration text-purple-600">Recommended: {{ recommendedSegmentDuration }}s/segment</span>
+                  </div>
+                </div>
+                
+                <div class="unified-timeline relative h-16 bg-gray-100 rounded-lg border-2 border-gray-200 overflow-hidden" ref="unifiedTimelineRef">
+                  <!-- Background timeline -->
+                  <div class="timeline-background absolute inset-0 bg-gradient-to-r from-gray-100 to-gray-200"></div>
+                  
+                  <!-- Time markers -->
+                  <div class="time-markers absolute inset-0">
+                    <div v-for="marker in timeMarkers" :key="marker.time" 
+                         class="time-marker absolute top-0 h-full border-l border-gray-300" 
+                         :style="{ left: marker.position + '%' }">
+                      <span class="time-label absolute -top-5 text-xs text-gray-500 transform -translate-x-1/2">
+                        {{ formatTime(marker.time) }}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <!-- All segments display with drag handles -->
+                  <div class="segments-layer absolute inset-0">
+                    <div v-for="(segment, index) in segments" 
+                         :key="segment.id || index"
+                         class="timeline-segment absolute top-1 bottom-1 bg-purple-500 border border-purple-600 rounded shadow-sm transition-all duration-200"
+                         :class="{ 
+                           'current-segment bg-blue-500 border-blue-600 z-30': currentEditingIndex === index,
+                           'other-segment hover:bg-purple-400 z-20': currentEditingIndex !== index 
+                         }"
+                         :style="{ 
+                           left: (segment.start / videoDuration) * 100 + '%',
+                           width: ((segment.end - segment.start) / videoDuration) * 100 + '%'
+                         }">
+                      
+                      <!-- Left drag handle (start) -->
+                      <div class="drag-handle left-handle absolute -left-1 top-0 bottom-0 w-2 bg-white border border-gray-400 rounded-l cursor-ew-resize hover:bg-gray-100 transition-colors z-10"
+                           @mousedown="startUnifiedSegmentDrag($event, index, 'start')"
+                           @touchstart="startUnifiedSegmentDrag($event, index, 'start')"
+                           title="Drag to adjust start time">
+                        <div class="handle-indicator absolute top-1/2 left-1/2 w-0.5 h-6 bg-gray-600 transform -translate-x-1/2 -translate-y-1/2"></div>
+                      </div>
+                      
+                      <div class="segment-content flex items-center justify-center h-full px-2 text-white font-semibold text-sm cursor-move hover:bg-opacity-90 transition-all"
+                           @mousedown="startUnifiedSegmentDrag($event, index, 'move')"
+                           @touchstart="startUnifiedSegmentDrag($event, index, 'move')"
+                           title="Drag to move entire segment">
+                        <span class="segment-label mr-1">{{ index + 1 }}</span>
+                        <span class="segment-duration text-xs opacity-80">{{ Math.round(segment.end - segment.start) }}s</span>
+                        <i class="fas fa-arrows-alt ml-1 text-xs opacity-60"></i>
+                      </div>
+                      
+                      <!-- Right drag handle (end) -->
+                      <div class="drag-handle right-handle absolute -right-1 top-0 bottom-0 w-2 bg-white border border-gray-400 rounded-r cursor-ew-resize hover:bg-gray-100 transition-colors z-10"
+                           @mousedown="startUnifiedSegmentDrag($event, index, 'end')"
+                           @touchstart="startUnifiedSegmentDrag($event, index, 'end')"
+                           title="Drag to adjust end time">
+                        <div class="handle-indicator absolute top-1/2 left-1/2 w-0.5 h-6 bg-gray-600 transform -translate-x-1/2 -translate-y-1/2"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Timeline Legend -->
+                <div class="timeline-legend mt-3 flex items-center space-x-4 text-xs text-gray-600">
+                  <div class="flex items-center">
+                    <div class="w-3 h-3 bg-purple-500 rounded mr-1"></div>
+                    <span>Saved segments</span>
+                  </div>
+                  <div class="flex items-center">
+                    <div class="w-3 h-3 bg-blue-500 rounded mr-1"></div>
+                    <span>Current editing</span>
+                  </div>
+                  <div class="flex items-center">
+                    <i class="fas fa-arrows-alt-h mr-1 text-gray-400"></i>
+                    <span>Drag handles to resize</span>
+                  </div>
+                  <div class="flex items-center">
+                    <i class="fas fa-arrows-alt mr-1 text-gray-400"></i>
+                    <span>Drag center to move</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div v-if="!segments.length" class="text-center text-gray-500 py-4">
+              <i class="fas fa-info-circle mb-2"></i>
+              <p class="text-sm">ยังไม่มีช่วงที่เลือก<br>เลือกช่วงเวลาแล้วกด "เพิ่มช่วงนี้"</p>
+            </div>
+          </div>
+          
+          <!-- Processing Progress -->
+          <div v-if="isProcessing" class="space-y-3">
+            <div class="flex items-center justify-between text-sm">
+              <span class="font-medium text-gray-700">กำลังประมวลผล...</span>
+              <span class="font-semibold text-blue-600">{{ progressPercentage }}%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div 
+                class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                :style="{ width: progressPercentage + '%' }"
+              ></div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+          <div class="text-sm text-gray-600">
+            <span v-if="videoFile">{{ videoFile.name }}</span>
+          </div>
+          
+          <div class="flex space-x-3">
+            <button 
+              @click="closeModal"
+              :disabled="isProcessing"
+              class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ยกเลิก
+            </button>
+            <button 
+              @click="startTrimming"
+              :disabled="(!canTrim && !isMultiSegmentMode) || (isMultiSegmentMode && segments.length === 0) || isProcessing"
+              class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            >
+              <i class="fas fa-cut"></i>
+              <span>
+                {{ isProcessing ? 'กำลังตัดต่อ...' : 
+                   isMultiSegmentMode && segments.length > 0 ? `ตัดต่อ ${segments.length} ช่วง` : 
+                   'ตัดต่อวีดีโอ' }}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Options Modal (Separate from main modal) -->
+  <div v-if="showExportOptions" class="fixed inset-0 z-[9999] overflow-y-auto">
+    <div class="fixed inset-0 bg-black/70 backdrop-blur-sm" @click="cancelExport"></div>
+    <div class="flex min-h-full items-center justify-center p-4">
+      <div class="relative w-full max-w-md bg-white rounded-xl shadow-2xl transform transition-all">
+        <!-- Export Header -->
+        <div class="p-6 border-b border-gray-200">
+          <div class="flex items-center space-x-3">
+            <div class="p-2 bg-green-100 rounded-lg">
+              <i class="fas fa-cog text-green-600 text-lg"></i>
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900">ตั้งค่าการส่งออก</h3>
+              <p class="text-sm text-gray-500">กำหนดรายละเอียดก่อนตัดต่อ</p>
+            </div>
+          </div>
+        </div>
+              
+              <!-- Export Settings -->
+              <div class="p-6 space-y-6">
+                <!-- Trim Mode Selection -->
+                <div class="space-y-3">
+                  <label class="block text-sm font-medium text-gray-700">โหมดการตัดต่อ</label>
+                  <div class="grid grid-cols-1 gap-3">
+                    <label class="relative cursor-pointer">
+                      <input 
+                        type="radio" 
+                        v-model="exportSettings.trimMode" 
+                        value="single"
+                        class="sr-only"
+                      />
+                      <div class="p-4 border-2 rounded-lg transition-all" 
+                           :class="exportSettings.trimMode === 'single' 
+                             ? 'border-blue-500 bg-blue-50' 
+                             : 'border-gray-200 hover:border-gray-300'"
+                      >
+                        <div class="flex items-center space-x-3">
+                          <i class="fas fa-cut text-lg" 
+                             :class="exportSettings.trimMode === 'single' ? 'text-blue-600' : 'text-gray-400'"></i>
+                          <div>
+                            <div class="font-medium text-gray-900">ตัดช่วงเดียว</div>
+                            <div class="text-sm text-gray-500">ตัดเฉพาะช่วงที่เลือกปัจจุบัน</div>
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                    <label class="relative cursor-pointer">
+                      <input 
+                        type="radio" 
+                        v-model="exportSettings.trimMode" 
+                        value="multi"
+                        class="sr-only"
+                        :disabled="segments.length === 0"
+                      />
+                      <div class="p-4 border-2 rounded-lg transition-all" 
+                           :class="[
+                             exportSettings.trimMode === 'multi' 
+                               ? 'border-purple-500 bg-purple-50' 
+                               : 'border-gray-200 hover:border-gray-300',
+                             segments.length === 0 ? 'opacity-50 cursor-not-allowed' : ''
+                           ]"
+                      >
+                        <div class="flex items-center space-x-3">
+                          <i class="fas fa-layer-group text-lg" 
+                             :class="exportSettings.trimMode === 'multi' ? 'text-purple-600' : 'text-gray-400'"></i>
+                          <div>
+                            <div class="font-medium text-gray-900">ตัดหลายช่วง</div>
+                            <div class="text-sm text-gray-500">
+                              นำช่วงที่เลือกมาต่อกัน ({{ segments.length }} ช่วง)
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                  <div v-if="exportSettings.trimMode === 'multi' && segments.length > 0" 
+                       class="text-xs text-purple-600 p-2 bg-purple-50 rounded">
+                    ระยะเวลารวม: {{ formatTime(getTotalSegmentsDuration()) }}
+                  </div>
+                </div>
+                
+                <!-- Audio Volume -->
+                <div class="space-y-3">
+                  <label class="block text-sm font-medium text-gray-700">ระดับเสียง</label>
+                  <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                      <span class="text-sm text-gray-600">{{ exportSettings.volume }}%</span>
+                      <span class="text-xs text-gray-500">
+                        <template v-if="exportSettings.volume < 100">เบา</template>
+                        <template v-else-if="exportSettings.volume === 100">ปกติ</template>
+                        <template v-else>ดัง</template>
+                      </span>
+                    </div>
+                    
+                    <!-- Custom Volume Slider -->
+                    <div class="relative">
+                      <div class="w-full h-2 bg-gray-200 rounded-lg relative overflow-hidden">
+                        <!-- Volume fill -->
+                        <div 
+                          class="absolute top-0 left-0 h-full bg-gradient-to-r from-green-400 to-blue-500 rounded-lg transition-all duration-200"
+                          :style="{ width: `${Math.min(exportSettings.volume / 2, 100)}%` }"
+                        ></div>
+                        
+                        <!-- Volume handle -->
+                        <div 
+                          class="absolute top-1/2 w-4 h-4 bg-white border-2 border-blue-500 rounded-full shadow-lg transform -translate-y-1/2 -translate-x-2 cursor-pointer"
+                          :style="{ left: `${Math.min(exportSettings.volume / 2, 100)}%` }"
+                        ></div>
+                        
+                        <!-- Hidden input for interaction -->
+                        <input 
+                          type="range" 
+                          min="0" 
+                          max="200" 
+                          step="5"
+                          v-model="exportSettings.volume"
+                          class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        />
+                      </div>
+                      
+                      <!-- Volume markers -->
+                      <div class="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>0%</span>
+                        <span>100%</span>
+                        <span>200%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Output Quality -->
+                <div class="space-y-3">
+                  <label class="block text-sm font-medium text-gray-700">ความละเอียด</label>
+                  <div class="grid grid-cols-2 gap-2">
+                    <button 
+                      v-for="quality in qualityOptions"
+                      :key="quality.value"
+                      @click="exportSettings.quality = quality.value"
+                      :class="[
+                        'px-3 py-2 text-sm font-medium rounded-lg border transition-colors',
+                        exportSettings.quality === quality.value 
+                          ? 'bg-blue-600 text-white border-blue-600' 
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                      ]"
+                    >
+                      {{ quality.label }}
+                    </button>
+                  </div>
+                  <div class="text-xs text-gray-500">
+                    <template v-if="exportSettings.quality === '240p'">ขนาดไฟล์เล็กมาก, คุณภาพต่ำ</template>
+                    <template v-else-if="exportSettings.quality === '480p'">ขนาดไฟล์เล็ก, คุณภาพปานกลาง</template>
+                    <template v-else-if="exportSettings.quality === '720p'">ขนาดไฟล์กลาง, คุณภาพดี</template>
+                    <template v-else-if="exportSettings.quality === '1080p'">ขนาดไฟล์ใหญ่, คุณภาพสูง</template>
+                    <template v-else-if="exportSettings.quality === 'original'">ขนาดใหญ่ที่สุด, คุณภาพเหมือนต้นฉบับ</template>
+                  </div>
+                </div>
+                
+                <!-- Output Format -->
+                <div class="space-y-3">
+                  <label class="block text-sm font-medium text-gray-700">รูปแบบไฟล์</label>
+                  <select 
+                    v-model="exportSettings.format"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="mp4">MP4 (แนะนำ)</option>
+                    <option value="webm">WebM</option>
+                    <option value="avi">AVI</option>
+                    <option value="mov">MOV</option>
+                  </select>
+                </div>
+                
+                <!-- Processing Mode -->
+                <div class="space-y-3">
+                  <label class="block text-sm font-medium text-gray-700">โหมดการประมวลผล</label>
+                  <div class="space-y-3">
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                      <input 
+                        type="radio" 
+                        v-model="exportSettings.processingMode" 
+                        value="fast"
+                        class="w-4 h-4 text-blue-600"
+                      />
+                      <div>
+                        <div class="font-medium text-gray-900">เร็ว (Copy Streams)</div>
+                        <div class="text-sm text-gray-500">ไม่แปลงไฟล์ใหม่ เร็วแต่อาจมีข้อจำกัด</div>
+                      </div>
+                    </label>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                      <input 
+                        type="radio" 
+                        v-model="exportSettings.processingMode" 
+                        value="quality"
+                        class="w-4 h-4 text-blue-600"
+                      />
+                      <div>
+                        <div class="font-medium text-gray-900">คุณภาพ (Re-encode)</div>
+                        <div class="text-sm text-gray-500">แปลงไฟล์ใหม่ ช้าแต่คุณภาพดีและปรับแต่งได้มาก</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+                
+                <!-- File Name -->
+                <div class="space-y-3">
+                  <label class="block text-sm font-medium text-gray-700">ชื่อไฟล์</label>
+                  <input 
+                    type="text" 
+                    v-model="exportSettings.filename"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="ชื่อไฟล์ที่ต้องการ"
+                  />
+                </div>
+              </div>
+              
+              <!-- Export Actions -->
+              <div class="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+                <button 
+                  @click="cancelExport"
+                  class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg font-medium transition-colors"
+                >
+                  ยกเลิก
+                </button>
+                
+                <div class="flex space-x-3">
+                  <button 
+                    @click="resetExportSettings"
+                    class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+                  >
+                    รีเซ็ต
+                  </button>
+                  <button 
+                    @click="confirmExport"
+                    class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center space-x-2"
+                  >
+                    <i class="fas fa-download"></i>
+                    <span>เริ่มตัดต่อ</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+</template>
+
+<script>
+import { ref, watch, computed } from 'vue';
+import { useVideoTrim } from '@/composables/useVideoTrim';
+
+export default {
+  name: 'VideoTrimmer',
+  props: {
+    isOpen: {
+      type: Boolean,
+      default: false
+    },
+    file: {
+      type: Object,
+      default: null
+    },
+    fileUrl: {
+      type: String,
+      default: ''
+    }
+  },
+  emits: ['close', 'trimmed'],
+  setup(props, { emit }) {
+    const {
+      videoFile,
+      videoUrl,
+      videoDuration,
+      currentTime,
+      startTime,
+      endTime,
+      trimDuration,
+      isProcessing,
+      progressPercentage,
+      canTrim,
+      loadVideo,
+      seekToTime,
+      formatTime,
+      reset,
+      setPreviewElement
+    } = useVideoTrim();
+
+    const videoRef = ref(null);
+    const timelineRef = ref(null);
+    const unifiedTimelineRef = ref(null);
+    const isDragging = ref(false);
+    const dragType = ref(''); // 'start' or 'end'
+    const thumbnails = ref([]);
+    const segmentThumbnails = ref([]);
+    const isGeneratingThumbnails = ref(false);
+    const thumbnailProgress = ref(0);
+    const isPreviewPlaying = ref(false);
+    const isVideoPlaying = ref(false);
+    const volume = ref(1);
+    const isMuted = ref(false);
+    const progressBarRef = ref(null);
+    const isDraggingProgress = ref(false);
+    
+    // Computed properties for unified timeline
+    const timeMarkers = computed(() => {
+      if (!videoDuration.value) return [];
+      
+      const markers = [];
+      const totalDuration = videoDuration.value;
+      const interval = totalDuration / 10; // 10 markers
+      
+      for (let i = 0; i <= 10; i++) {
+        const time = i * interval;
+        markers.push({
+          time: time,
+          position: (time / totalDuration) * 100
+        });
+      }
+      
+      return markers;
+    });
+    
+    const recommendedSegmentDuration = computed(() => {
+      const duration = videoDuration.value;
+      if (!duration) return 30;
+      
+      if (duration <= 60) return 10;
+      else if (duration <= 180) return 15;
+      else if (duration <= 300) return 20;
+      else if (duration <= 600) return 30;
+      else if (duration <= 1800) return 45;
+      else return 60;
+    });
+    const showExportOptions = ref(false);
+    
+    // Multi-segment support
+    const segments = ref([]);
+    const currentSegmentIndex = ref(0);
+    const isMultiSegmentMode = ref(false);
+    
+    const exportSettings = ref({
+      volume: 100,
+      quality: '720p',
+      format: 'mp4',
+      processingMode: 'fast',
+      filename: '',
+      trimMode: 'single' // 'single' or 'multi'
+    });
+
+    const qualityOptions = ref([
+      { value: '240p', label: '240p' },
+      { value: '480p', label: '480p' },
+      { value: '720p', label: '720p (HD)' },
+      { value: '1080p', label: '1080p (FHD)' },
+      { value: 'original', label: 'ต้นฉบับ' }
+    ]);
+
+    // Watch for props changes
+    watch(() => [props.file, props.fileUrl, props.isOpen], async ([newFile, newFileUrl, newIsOpen]) => {
+      if (newIsOpen && newFile && newFileUrl) {
+        try {
+          await loadVideo(newFile, newFileUrl);
+        } catch (error) {
+          console.error('Error loading video:', error);
+        }
+      }
+    }, { immediate: true });
+
+    // Watch for video element
+    watch(videoRef, (element) => {
+      if (element) {
+        setPreviewElement(element);
+      }
+    });
+    
+    // Watch for multi-segment mode changes
+    watch(isMultiSegmentMode, (newValue) => {
+      if (newValue && segments.value.length === 0) {
+        // เมื่อเปิด multi-segment mode ครั้งแรก ให้ตั้งค่าช่วงแรกที่ 30-60 วินาที
+        findNextSequentialSlot();
+      }
+    });
+
+    // Methods
+    const closeModal = () => {
+      // Stop any preview playback
+      stopPreview();
+      reset();
+      emit('close');
+    };
+
+    const onVideoLoaded = () => {
+      if (videoRef.value) {
+        videoDuration.value = videoRef.value.duration;
+        endTime.value = videoRef.value.duration;
+        
+        // Initialize video settings
+        videoRef.value.volume = volume.value;
+        
+        generateThumbnails();
+      }
+    };
+
+    const generateThumbnails = async () => {
+      if (!videoRef.value || !videoDuration.value) return;
+      
+      // Start generating thumbnails
+      isGeneratingThumbnails.value = true;
+      thumbnailProgress.value = 0;
+      thumbnails.value = [];
+      
+      const video = videoRef.value;
+      
+      // Set crossOrigin before any operations
+      if (!video.crossOrigin) {
+        video.crossOrigin = 'anonymous';
+      }
+      
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Set canvas size to match timeline aspect ratio
+      canvas.width = 120;
+      canvas.height = 64;
+      
+      const thumbnailCount = 10; // Number of thumbnails to generate
+      const interval = videoDuration.value / thumbnailCount;
+      const newThumbnails = [];
+      
+      for (let i = 0; i < thumbnailCount; i++) {
+        try {
+          const time = i * interval;
+          const thumbnail = await generateThumbnailAtTime(video, canvas, ctx, time);
+          
+          newThumbnails.push({
+            time,
+            url: thumbnail,
+            position: (time / videoDuration.value) * 100
+          });
+          
+          thumbnailProgress.value = ((i + 1) / thumbnailCount) * 100;
+          
+        } catch (error) {
+          console.warn('Failed to generate thumbnail:', error);
+        }
+      }
+      
+      thumbnails.value = newThumbnails;
+      isGeneratingThumbnails.value = false;
+    };
+    
+    // Generate thumbnails for specific segments
+    const generateSegmentThumbnails = async (segments) => {
+      if (!videoRef.value || !videoDuration.value) return [];
+      
+      const video = videoRef.value;
+      
+      // Set crossOrigin before any operations
+      if (!video.crossOrigin) {
+        video.crossOrigin = 'anonymous';
+      }
+      
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Set canvas size for segment thumbnails
+      canvas.width = 120;
+      canvas.height = 64;
+      
+      const segmentThumbnails = [];
+      
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
+        
+        try {
+          // Generate thumbnail from middle of segment
+          const middleTime = segment.start + (segment.duration / 2);
+          const thumbnailUrl = await generateThumbnailAtTime(video, canvas, ctx, middleTime);
+          
+          segmentThumbnails.push({
+            segmentId: segment.id,
+            segmentIndex: i,
+            time: middleTime,
+            url: thumbnailUrl,
+            segment: segment
+          });
+          
+        } catch (error) {
+          console.warn(`Failed to generate thumbnail for segment ${i}:`, error);
+          // Add placeholder thumbnail
+          segmentThumbnails.push({
+            segmentId: segment.id,
+            segmentIndex: i,
+            time: segment.start + (segment.duration / 2),
+            url: null,
+            segment: segment
+          });
+        }
+      }
+      
+      return segmentThumbnails;
+    };
+    
+    // Helper function to generate thumbnail at specific time
+    const generateThumbnailAtTime = (video, canvas, ctx, time) => {
+      return new Promise((resolve, reject) => {
+        const originalTime = video.currentTime;
+        
+        const onSeeked = () => {
+          try {
+            video.removeEventListener('seeked', onSeeked);
+            
+            // Draw video frame to canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Convert to data URL
+            const dataURL = canvas.toDataURL('image/jpeg', 0.8);
+            
+            // Restore original time
+            video.currentTime = originalTime;
+            
+            resolve(dataURL);
+          } catch (error) {
+            video.removeEventListener('seeked', onSeeked);
+            video.currentTime = originalTime;
+            reject(error);
+          }
+        };
+        
+        video.addEventListener('seeked', onSeeked);
+        video.currentTime = time;
+      });
+    };
+      
+      for (let i = 0; i < thumbnailCount; i++) {
+        try {
+          const time = i * interval;
+          
+          // Create a promise to handle video seeking
+          await new Promise((resolve, reject) => {
+            const handleSeeked = () => {
+              video.removeEventListener('seeked', handleSeeked);
+              video.removeEventListener('error', handleError);
+              
+              try {
+                // Draw video frame to canvas
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Convert to data URL with error handling
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                newThumbnails.push({
+                  time,
+                  dataUrl
+                });
+                
+                // Update progress
+                thumbnailProgress.value = newThumbnails.length;
+                
+                resolve();
+              } catch (error) {
+                console.warn('Canvas export error, using placeholder:', error);
+                // Use a placeholder color instead
+                ctx.fillStyle = `hsl(${(i * 36) % 360}, 50%, 70%)`;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#fff';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(formatTime(time), canvas.width/2, canvas.height/2);
+                
+                newThumbnails.push({
+                  time,
+                  dataUrl: canvas.toDataURL('image/jpeg', 0.8)
+                });
+                
+                // Update progress
+                thumbnailProgress.value = newThumbnails.length;
+                
+                resolve();
+              }
+            };
+            
+            const handleError = () => {
+              video.removeEventListener('seeked', handleSeeked);
+              video.removeEventListener('error', handleError);
+              reject(new Error('Video seek error'));
+            };
+            
+            video.addEventListener('seeked', handleSeeked);
+            video.addEventListener('error', handleError);
+            video.currentTime = time;
+          });
+          
+          // Small delay to ensure proper frame capture
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+        } catch (error) {
+          console.error('Error generating thumbnail:', error);
+          // Add placeholder thumbnail
+          ctx.fillStyle = `hsl(${(i * 36) % 360}, 30%, 80%)`;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#666';
+          ctx.font = '10px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(formatTime(i * interval), canvas.width/2, canvas.height/2);
+          
+          newThumbnails.push({
+            time: i * interval,
+            dataUrl: canvas.toDataURL('image/jpeg', 0.8)
+          });
+          
+          // Update progress even for placeholder thumbnails
+          thumbnailProgress.value = newThumbnails.length;
+        }
+      }
+      
+      thumbnails.value = newThumbnails;
+      
+      // Finished generating thumbnails
+      isGeneratingThumbnails.value = false;
+      
+      // Reset video to start
+      try {
+        video.currentTime = 0;
+      } catch (error) {
+        console.warn('Could not reset video time:', error);
+      }
+    };
+
+    const onTimeUpdate = () => {
+      if (videoRef.value) {
+        currentTime.value = videoRef.value.currentTime;
+        
+        // Update playing state
+        isVideoPlaying.value = !videoRef.value.paused;
+        
+        // Check if we're in preview mode
+        if (isVideoPlaying.value) {
+          if (isMultiSegmentMode.value && segments.value.length > 0) {
+            // Multi-segment preview logic
+            handleMultiSegmentPreview();
+          } else {
+            // Single segment preview logic (original behavior)
+            if (isPreviewPlaying.value && currentTime.value >= endTime.value) {
+              // Loop back to start
+              videoRef.value.currentTime = startTime.value;
+            }
+          }
+        }
+      }
+    };
+    
+    // Handle multi-segment preview playback
+    const handleMultiSegmentPreview = () => {
+      const currentTimeVal = currentTime.value;
+      
+      // Find which segment we should be in
+      const currentSegment = segments.value.find(segment => 
+        currentTimeVal >= segment.start && currentTimeVal <= segment.end
+      );
+      
+      if (currentSegment) {
+        // We're in a valid segment, check if we've reached the end
+        if (currentTimeVal >= currentSegment.end) {
+          jumpToNextSegment(currentSegment);
+        }
+      } else {
+        // We're not in any segment, jump to the next one
+        jumpToNextSegment();
+      }
+    };
+    
+    // Jump to the next segment in sequence
+    const jumpToNextSegment = (currentSegment = null) => {
+      // Sort segments by start time
+      const sortedSegments = [...segments.value].sort((a, b) => a.start - b.start);
+      
+      if (currentSegment) {
+        // Find next segment after current one
+        const currentIndex = sortedSegments.findIndex(seg => seg.id === currentSegment.id);
+        if (currentIndex >= 0 && currentIndex < sortedSegments.length - 1) {
+          // Jump to next segment
+          const nextSegment = sortedSegments[currentIndex + 1];
+          videoRef.value.currentTime = nextSegment.start;
+          console.log(`Jumping from segment ${currentIndex + 1} to segment ${currentIndex + 2}`);
+        } else {
+          // We're at the last segment, loop back to first
+          const firstSegment = sortedSegments[0];
+          videoRef.value.currentTime = firstSegment.start;
+          console.log('Looping back to first segment');
+        }
+      } else {
+        // Not in any segment, find the first segment that starts after current time
+        const nextSegment = sortedSegments.find(seg => seg.start > currentTime.value) || sortedSegments[0];
+        videoRef.value.currentTime = nextSegment.start;
+        console.log(`Jumping to segment starting at ${nextSegment.start}s`);
+      }
+    };
+
+    // Custom video control methods
+    const togglePlayPause = () => {
+      if (videoRef.value) {
+        if (videoRef.value.paused) {
+          videoRef.value.play();
+          isVideoPlaying.value = true;
+          
+          if (isMultiSegmentMode.value && segments.value.length > 0) {
+            // Multi-segment mode: check if current time is in any segment
+            const currentTimeVal = currentTime.value;
+            const isInAnySegment = segments.value.some(segment => 
+              currentTimeVal >= segment.start && currentTimeVal <= segment.end
+            );
+            
+            if (!isInAnySegment) {
+              // If not in any segment, jump to first segment
+              const sortedSegments = [...segments.value].sort((a, b) => a.start - b.start);
+              videoRef.value.currentTime = sortedSegments[0].start;
+            }
+          } else {
+            // Single segment mode: original behavior
+            if (currentTime.value < startTime.value || currentTime.value >= endTime.value) {
+              videoRef.value.currentTime = startTime.value;
+            }
+          }
+          
+          // Set preview mode if playing
+          isPreviewPlaying.value = true;
+        } else {
+          videoRef.value.pause();
+          isVideoPlaying.value = false;
+          isPreviewPlaying.value = false;
+        }
+      }
+    };
+
+    const seekFromProgressBar = (event) => {
+      if (!progressBarRef.value || !videoDuration.value || isDraggingProgress.value) return;
+      
+      const rect = progressBarRef.value.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const percentage = Math.max(0, Math.min(1, x / rect.width));
+      const time = percentage * videoDuration.value;
+      
+      // Stop preview mode when manually seeking
+      if (isPreviewPlaying.value) {
+        isPreviewPlaying.value = false;
+      }
+      
+      seekToTime(time);
+    };
+
+    const startProgressDrag = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      isDraggingProgress.value = true;
+      
+      // Stop preview mode when manually seeking
+      if (isPreviewPlaying.value) {
+        isPreviewPlaying.value = false;
+      }
+      
+      const handleMouseMove = (e) => {
+        if (!isDraggingProgress.value || !progressBarRef.value || !videoDuration.value) return;
+        
+        const rect = progressBarRef.value.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const percentage = Math.max(0, Math.min(1, x / rect.width));
+        const time = percentage * videoDuration.value;
+        
+        // Allow seeking anywhere, but show visual feedback for selected range
+        seekToTime(time);
+      };
+      
+      const handleMouseUp = () => {
+        isDraggingProgress.value = false;
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+      
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      // Initial seek on mousedown
+      handleMouseMove(event);
+    };
+
+    const toggleMute = () => {
+      if (videoRef.value) {
+        if (isMuted.value) {
+          videoRef.value.volume = volume.value;
+          isMuted.value = false;
+        } else {
+          videoRef.value.volume = 0;
+          isMuted.value = true;
+        }
+      }
+    };
+
+    const updateVolume = (event) => {
+      const newVolume = parseFloat(event.target.value);
+      volume.value = newVolume;
+      
+      if (videoRef.value) {
+        videoRef.value.volume = newVolume;
+        isMuted.value = newVolume === 0;
+      }
+    };
+
+    const toggleFullscreen = () => {
+      if (videoRef.value) {
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+        } else {
+          videoRef.value.requestFullscreen();
+        }
+      }
+    };
+
+    const jumpToStart = () => {
+      seekToTime(0);
+      startTime.value = 0;
+    };
+
+    const jumpToEnd = () => {
+      seekToTime(videoDuration.value);
+      endTime.value = videoDuration.value;
+    };
+
+    const adjustStartTime = (seconds) => {
+      const newTime = Math.max(0, Math.min(startTime.value + seconds, endTime.value - 0.1));
+      startTime.value = newTime;
+      seekToTime(newTime);
+    };
+
+    const adjustEndTime = (seconds) => {
+      const newTime = Math.max(startTime.value + 0.1, Math.min(endTime.value + seconds, videoDuration.value));
+      endTime.value = newTime;
+      seekToTime(newTime);
+    };
+
+    const updateStartTimeFromInput = (event) => {
+      const timeStr = event.target.value.trim();
+      const seconds = parseTimeString(timeStr);
+      if (seconds !== null && seconds >= 0 && seconds < endTime.value) {
+        startTime.value = seconds;
+        seekToTime(seconds);
+      } else {
+        // Reset input to current value if invalid
+        event.target.value = formatTime(startTime.value);
+      }
+    };
+
+    const updateEndTimeFromInput = (event) => {
+      const timeStr = event.target.value.trim();
+      const seconds = parseTimeString(timeStr);
+      if (seconds !== null && seconds > startTime.value && seconds <= videoDuration.value) {
+        endTime.value = seconds;
+        seekToTime(seconds);
+      } else {
+        // Reset input to current value if invalid
+        event.target.value = formatTime(endTime.value);
+      }
+    };
+
+    const parseTimeString = (timeStr) => {
+      // Parse formats like "1:23", "01:23", "83" (seconds only)
+      const parts = timeStr.split(':');
+      
+      if (parts.length === 1) {
+        // Seconds only
+        const seconds = parseInt(parts[0]);
+        return isNaN(seconds) ? null : seconds;
+      } else if (parts.length === 2) {
+        // MM:SS format
+        const minutes = parseInt(parts[0]);
+        const seconds = parseInt(parts[1]);
+        if (isNaN(minutes) || isNaN(seconds) || seconds >= 60) return null;
+        return minutes * 60 + seconds;
+      }
+      
+      return null;
+    };
+
+    const getTimeIntervals = () => {
+      if (!videoDuration.value) return [];
+      
+      // Determine interval based on video duration
+      let interval;
+      if (videoDuration.value <= 120) { // <= 2 minutes
+        interval = 10; // 10 second intervals
+      } else if (videoDuration.value <= 600) { // <= 10 minutes
+        interval = 20; // 20 second intervals
+      } else if (videoDuration.value <= 1800) { // <= 30 minutes
+        interval = 60; // 1 minute intervals
+      } else {
+        interval = 300; // 5 minute intervals for very long videos
+      }
+      
+      const intervals = [];
+      for (let time = interval; time < videoDuration.value; time += interval) {
+        intervals.push({ time });
+      }
+      
+      return intervals;
+    };
+
+    const playFromStart = () => {
+      if (videoRef.value) {
+        if (isMultiSegmentMode.value && segments.value.length > 0) {
+          // Multi-segment mode: start from first segment
+          const sortedSegments = [...segments.value].sort((a, b) => a.start - b.start);
+          const firstSegment = sortedSegments[0];
+          videoRef.value.currentTime = firstSegment.start;
+          console.log(`Starting multi-segment preview from ${firstSegment.start}s`);
+        } else {
+          // Single segment mode: start from startTime
+          videoRef.value.currentTime = startTime.value;
+        }
+        
+        videoRef.value.play();
+        isPreviewPlaying.value = true;
+        isVideoPlaying.value = true;
+      }
+    };
+
+    const stopPreview = () => {
+      if (videoRef.value) {
+        videoRef.value.pause();
+        isPreviewPlaying.value = false;
+        isVideoPlaying.value = false;
+      }
+    };
+
+    const startTrimming = async () => {
+      // Show export options popup instead of direct processing
+      showExportOptions.value = true;
+      
+      // Set default filename from video file
+      if (videoFile.value?.name) {
+        exportSettings.value.filename = videoFile.value.name.replace(/\.[^/.]+$/, "") + "_trimmed";
+      }
+    };
+
+    const cancelExport = () => {
+      showExportOptions.value = false;
+    };
+
+    const resetExportSettings = () => {
+      exportSettings.value = {
+        volume: 100,
+        quality: '720p',
+        format: 'mp4',
+        processingMode: 'fast',
+        trimMode: 'single',
+        filename: videoFile.value?.name?.replace(/\.[^/.]+$/, "") + "_trimmed" || 'trimmed_video'
+      };
+    };
+
+    // Segment dragging functionality
+    const isDraggingSegment = ref(false);
+    const dragSegmentData = ref({ segmentId: null, type: null, startX: 0, originalSegment: null });
+    
+    // Original segment drag for main timeline
+    const startSegmentDrag = (segmentId, dragType, event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      const segment = segments.value.find(s => s.id === segmentId);
+      if (!segment) return;
+      
+      isDraggingSegment.value = true;
+      dragSegmentData.value = {
+        segmentId,
+        type: dragType, // 'start', 'end', or 'move'
+        startX: event.clientX,
+        originalSegment: { ...segment }
+      };
+      
+      document.addEventListener('mousemove', handleSegmentDrag);
+      document.addEventListener('mouseup', stopSegmentDrag);
+    };
+    
+    // New segment drag for unified timeline
+    const startUnifiedSegmentDrag = (event, segmentIndex, dragType) => {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      if (segmentIndex < 0 || segmentIndex >= segments.value.length) return;
+      
+      const segment = segments.value[segmentIndex];
+      if (!segment) return;
+      
+      isDraggingSegment.value = true;
+      dragSegmentData.value = {
+        segmentIndex,
+        type: dragType, // 'start', 'end', or 'move'
+        startX: event.clientX,
+        originalSegment: { ...segment }
+      };
+      
+      document.addEventListener('mousemove', handleUnifiedSegmentDrag);
+      document.addEventListener('mouseup', stopUnifiedSegmentDrag);
+    };
+    
+    const handleUnifiedSegmentDrag = (event) => {
+      if (!isDraggingSegment.value || !unifiedTimelineRef.value) return;
+      
+      const rect = unifiedTimelineRef.value.getBoundingClientRect();
+      const deltaX = event.clientX - dragSegmentData.value.startX;
+      const deltaTime = (deltaX / rect.width) * videoDuration.value;
+      
+      const segmentIndex = dragSegmentData.value.segmentIndex;
+      if (segmentIndex < 0 || segmentIndex >= segments.value.length) return;
+      
+      const segment = segments.value[segmentIndex];
+      const originalSegment = dragSegmentData.value.originalSegment;
+      
+      if (dragSegmentData.value.type === 'start') {
+        let newStart = Math.max(0, originalSegment.start + deltaTime);
+        newStart = Math.min(newStart, segment.end - 0.1); // Minimum 0.1s duration
+        
+        // Check for overlap with other segments
+        if (!checkSegmentOverlapForUpdate(segmentIndex, newStart, segment.end)) {
+          segment.start = newStart;
+          segment.duration = segment.end - segment.start;
+        }
+      } else if (dragSegmentData.value.type === 'end') {
+        let newEnd = Math.min(videoDuration.value, originalSegment.end + deltaTime);
+        newEnd = Math.max(newEnd, segment.start + 0.1); // Minimum 0.1s duration
+        
+        // Check for overlap with other segments
+        if (!checkSegmentOverlapForUpdate(segmentIndex, segment.start, newEnd)) {
+          segment.end = newEnd;
+          segment.duration = segment.end - segment.start;
+        }
+      } else if (dragSegmentData.value.type === 'move') {
+        // Move entire segment
+        const segmentDuration = originalSegment.end - originalSegment.start;
+        let newStart = Math.max(0, originalSegment.start + deltaTime);
+        let newEnd = newStart + segmentDuration;
+        
+        // Ensure segment doesn't go beyond video duration
+        if (newEnd > videoDuration.value) {
+          newEnd = videoDuration.value;
+          newStart = newEnd - segmentDuration;
+        }
+        
+        // Ensure segment doesn't go before 0
+        if (newStart < 0) {
+          newStart = 0;
+          newEnd = newStart + segmentDuration;
+        }
+        
+        // Check for overlap with other segments
+        if (!checkSegmentOverlapForUpdate(segmentIndex, newStart, newEnd)) {
+          segment.start = newStart;
+          segment.end = newEnd;
+          segment.duration = segmentDuration; // Duration stays the same
+        }
+      }
+    };
+    
+    const stopUnifiedSegmentDrag = () => {
+      isDraggingSegment.value = false;
+      dragSegmentData.value = { segmentId: null, type: null, startX: 0, originalSegment: null };
+      
+      document.removeEventListener('mousemove', handleUnifiedSegmentDrag);
+      document.removeEventListener('mouseup', stopUnifiedSegmentDrag);
+    };
+    
+    const checkSegmentOverlapForUpdate = (currentIndex, newStart, newEnd) => {
+      for (let i = 0; i < segments.value.length; i++) {
+        if (i === currentIndex) continue;
+        
+        const otherSegment = segments.value[i];
+        if ((newStart < otherSegment.end && newEnd > otherSegment.start)) {
+          return true; // Overlap detected
+        }
+      }
+      return false; // No overlap
+    };
+    
+    const handleSegmentDrag = (event) => {
+      if (!isDraggingSegment.value || !timelineRef.value) return;
+      
+      const rect = timelineRef.value.getBoundingClientRect();
+      const deltaX = event.clientX - dragSegmentData.value.startX;
+      const deltaTime = (deltaX / rect.width) * videoDuration.value;
+      
+      const segment = segments.value.find(s => s.id === dragSegmentData.value.segmentId);
+      if (!segment) return;
+      
+      const original = dragSegmentData.value.originalSegment;
+      let newStart = original.start;
+      let newEnd = original.end;
+      
+      // Calculate new times based on drag type
+      if (dragSegmentData.value.type === 'start') {
+        newStart = Math.max(0, Math.min(original.start + deltaTime, original.end - 0.1));
+      } else if (dragSegmentData.value.type === 'end') {
+        newEnd = Math.min(videoDuration.value, Math.max(original.end + deltaTime, original.start + 0.1));
+      } else if (dragSegmentData.value.type === 'move') {
+        const duration = original.end - original.start;
+        newStart = Math.max(0, Math.min(original.start + deltaTime, videoDuration.value - duration));
+        newEnd = newStart + duration;
+      }
+      
+      // Check for overlaps with other segments
+      const isValidPosition = checkSegmentOverlap(dragSegmentData.value.segmentId, newStart, newEnd);
+      
+      if (isValidPosition) {
+        segment.start = newStart;
+        segment.end = newEnd;
+        segment.duration = newEnd - newStart;
+      }
+    };
+    
+    const stopSegmentDrag = () => {
+      isDraggingSegment.value = false;
+      dragSegmentData.value = { segmentId: null, type: null, startX: 0, originalSegment: null };
+      document.removeEventListener('mousemove', handleSegmentDrag);
+      document.removeEventListener('mouseup', stopSegmentDrag);
+    };
+    
+    const checkSegmentOverlap = (currentSegmentId, newStart, newEnd) => {
+      return !segments.value.some(segment => {
+        if (segment.id === currentSegmentId) return false;
+        
+        // Check if new segment overlaps with existing segment
+        return !(newEnd <= segment.start || newStart >= segment.end);
+      });
+    };
+
+    const confirmExport = async () => {
+      try {
+        showExportOptions.value = false;
+        isProcessing.value = true;
+        progressPercentage.value = 0;
+        
+        let trimRequest;
+        
+        if (exportSettings.value.trimMode === 'multi' && segments.value.length > 0) {
+          // Multi-segment trimming
+          trimRequest = {
+            input_url: videoUrl.value,
+            trim_mode: 'multi',
+            segments: segments.value.map(seg => ({
+              start: Math.round(seg.start * 100) / 100,
+              end: Math.round(seg.end * 100) / 100,
+              duration: Math.round(seg.duration * 100) / 100
+            })),
+            
+            // Audio settings
+            audio_volume: exportSettings.value.volume / 100,
+            
+            // Output settings
+            output_format: exportSettings.value.format,
+            quality: exportSettings.value.quality,
+            processing_mode: exportSettings.value.processingMode,
+            filename: exportSettings.value.filename,
+            
+            // Additional FFmpeg parameters
+            copy_streams: exportSettings.value.processingMode === 'fast',
+            audio_filter: exportSettings.value.volume !== 100 ? `volume=${exportSettings.value.volume / 100}` : null
+          };
+        } else {
+          // Single segment trimming (original behavior)
+          trimRequest = {
+            input_url: videoUrl.value,
+            trim_mode: 'single',
+            start_time: Math.round(startTime.value * 100) / 100,
+            end_time: Math.round(endTime.value * 100) / 100,
+            duration: Math.round(trimDuration.value * 100) / 100,
+            
+            // Audio settings
+            audio_volume: exportSettings.value.volume / 100,
+            
+            // Output settings
+            output_format: exportSettings.value.format,
+            quality: exportSettings.value.quality,
+            processing_mode: exportSettings.value.processingMode,
+            filename: exportSettings.value.filename,
+            
+            // Additional FFmpeg parameters
+            copy_streams: exportSettings.value.processingMode === 'fast',
+            audio_filter: exportSettings.value.volume !== 100 ? `volume=${exportSettings.value.volume / 100}` : null
+          };
+        }
+        
+        console.log('Sending trim request to server:', trimRequest);
+        
+        // Example API call (adjust URL to your server)
+        const response = await fetch('/api/video/trim', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(trimRequest)
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        // Simulate progress updates
+        const progressInterval = setInterval(() => {
+          progressPercentage.value = Math.min(progressPercentage.value + 10, 90);
+        }, 500);
+        
+        // Wait for processing completion
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        clearInterval(progressInterval);
+        progressPercentage.value = 100;
+        
+        console.log('Trim completed:', result);
+        
+        // Emit result with all settings
+        emit('trimmed', {
+          success: true,
+          downloadUrl: result.download_url,
+          filename: result.filename,
+          originalFile: videoFile.value,
+          trimSettings: {
+            startTime: startTime.value,
+            endTime: endTime.value,
+            duration: trimDuration.value
+          },
+          exportSettings: exportSettings.value
+        });
+        
+        closeModal();
+        
+      } catch (error) {
+        console.error('Error during video trimming:', error);
+        isProcessing.value = false;
+        progressPercentage.value = 0;
+        
+        alert(`เกิดข้อผิดพลาด: ${error.message}`);
+      }
+    };
+
+    // Drag functionality
+    const startDrag = (type, event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      isDragging.value = true;
+      dragType.value = type;
+      
+      const handleMouseMove = (e) => {
+        if (!isDragging.value || !timelineRef.value) return;
+        
+        const rect = timelineRef.value.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const percentage = Math.max(0, Math.min(1, x / rect.width));
+        const time = percentage * videoDuration.value;
+        
+        if (dragType.value === 'start') {
+          const newStartTime = Math.max(0, Math.min(time, endTime.value - 0.1));
+          startTime.value = newStartTime;
+          seekToTime(newStartTime);
+        } else if (dragType.value === 'end') {
+          const newEndTime = Math.min(videoDuration.value, Math.max(time, startTime.value + 0.1));
+          endTime.value = newEndTime;
+          seekToTime(newEndTime);
+        }
+      };
+      
+      const handleMouseUp = () => {
+        isDragging.value = false;
+        dragType.value = '';
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+      
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    };
+
+    const onTimelineClick = (event) => {
+      if (isDragging.value) return;
+      
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const percentage = x / rect.width;
+      const clickTime = percentage * videoDuration.value;
+      
+      // คลิกที่ไหนใกล้กับ start/end marker มากกว่า
+      const distanceToStart = Math.abs(clickTime - startTime.value);
+      const distanceToEnd = Math.abs(clickTime - endTime.value);
+      
+      if (distanceToStart < distanceToEnd && distanceToStart < videoDuration.value * 0.05) {
+        // คลิกใกล้ start marker
+        startTime.value = Math.max(0, Math.min(clickTime, endTime.value - 0.1));
+        seekToTime(startTime.value);
+      } else if (distanceToEnd < videoDuration.value * 0.05) {
+        // คลิกใกล้ end marker
+        endTime.value = Math.min(videoDuration.value, Math.max(clickTime, startTime.value + 0.1));
+        seekToTime(endTime.value);
+      } else {
+        // คลิกที่อื่น ให้ seek ไปยังเวลานั้น
+        seekToTime(clickTime);
+      }
+    };
+
+    // Multi-segment functions
+    const addSegment = () => {
+      const duration = videoDuration.value;
+      
+      // คำนวณความยาว segment ที่เหมาะสม
+      let defaultSegmentDuration;
+      if (duration <= 60) defaultSegmentDuration = 10;
+      else if (duration <= 180) defaultSegmentDuration = 15;
+      else if (duration <= 300) defaultSegmentDuration = 20;
+      else if (duration <= 600) defaultSegmentDuration = 30;
+      else if (duration <= 1800) defaultSegmentDuration = 45;
+      else defaultSegmentDuration = 60;
+      
+      defaultSegmentDuration = Math.max(5, Math.min(defaultSegmentDuration, duration / 8));
+      
+      // Sort segments by start time
+      const sortedSegments = [...segments.value].sort((a, b) => a.start - b.start);
+      
+      let newSegmentStart, newSegmentEnd;
+      
+      if (sortedSegments.length === 0) {
+        // First segment: start at 0
+        newSegmentStart = 0;
+        newSegmentEnd = Math.min(defaultSegmentDuration, duration);
+      } else {
+        // หา segment ที่มี end time สูงสุด
+        let lastSegment = sortedSegments[0];
+        for (const segment of sortedSegments) {
+          if (segment.end > lastSegment.end) {
+            lastSegment = segment;
+          }
+        }
+        
+        // เริ่ม segment ใหม่จากจุดสิ้นสุดของ segment สุดท้าย
+        newSegmentStart = lastSegment.end;
+        
+        // ความยาวของ segment ใหม่ = เวลาที่เหลือทั้งหมด
+        const remainingTime = duration - newSegmentStart;
+        
+        if (remainingTime <= 0) {
+          console.log('No more time left for new segments');
+          return;
+        }
+        
+        // ใช้เวลาที่เหลือทั้งหมดสำหรับ segment ใหม่
+        newSegmentEnd = duration; // ใช้ความยาววีดีโอทั้งหมดที่เหลือ
+      }
+      
+      // สร้าง segment ใหม่
+      const newSegment = {
+        id: Date.now(),
+        start: newSegmentStart,
+        end: newSegmentEnd,
+        duration: newSegmentEnd - newSegmentStart
+      };
+      
+      console.log(`Adding new segment: ${newSegmentStart}s - ${newSegmentEnd}s (${newSegment.duration}s)`);
+      console.log('Existing segments:', segments.value.map(s => `${s.start}s-${s.end}s`));
+      
+      // Insert segment in chronological order
+      const insertIndex = segments.value.findIndex(seg => seg.start > newSegment.start);
+      if (insertIndex === -1) {
+        segments.value.push(newSegment);
+      } else {
+        segments.value.splice(insertIndex, 0, newSegment);
+      }
+      
+      console.log(`Segment added successfully. Total segments: ${segments.value.length}`);
+      
+      // อัพเดท timeline ให้แสดงตำแหน่งถัดไป (ถ้ามี)
+      findNextSequentialSlot();
+    };
+    
+    const findNextSequentialSlot = () => {
+      const duration = videoDuration.value;
+      
+      // คำนวณความยาว section ที่เหมาะสมตามความยาววีดีโอ
+      let defaultSegmentDuration;
+      
+      if (duration <= 60) {
+        // วีดีโอสั้น (≤1 นาที): แบ่งเป็น 10-15 วินาที
+        defaultSegmentDuration = 10;
+      } else if (duration <= 180) {
+        // วีดีโอปานกลาง (1-3 นาที): แบ่งเป็น 15-20 วินาที
+        defaultSegmentDuration = 15;
+      } else if (duration <= 300) {
+        // วีดีโอ 3-5 นาที: แบ่งเป็น 20-25 วินาที
+        defaultSegmentDuration = 20;
+      } else if (duration <= 600) {
+        // วีดีโอ 5-10 นาที: แบ่งเป็น 30 วินาที
+        defaultSegmentDuration = 30;
+      } else if (duration <= 1800) {
+        // วีดีโอ 10-30 นาที: แบ่งเป็น 45 วินาที
+        defaultSegmentDuration = 45;
+      } else {
+        // วีดีโอยาว (>30 นาที): แบ่งเป็น 60 วินาที
+        defaultSegmentDuration = 60;
+      }
+      
+      // ปรับให้ไม่เกิน 1/8 ของความยาววีดีโอ และไม่น้อยกว่า 5 วินาที
+      defaultSegmentDuration = Math.max(5, Math.min(defaultSegmentDuration, duration / 8));
+      
+      // Sort segments by start time
+      const sortedSegments = [...segments.value].sort((a, b) => a.start - b.start);
+      
+      if (sortedSegments.length === 0) {
+        // First segment: start at 0 seconds
+        const start = 0;
+        const end = Math.min(defaultSegmentDuration, duration);
+        
+        if (start >= 0 && end > start) {
+          startTime.value = start;
+          endTime.value = end;
+          seekToTime(startTime.value);
+          return;
+        }
+      }
+      
+      // For subsequent segments: หาตำแหน่งหลัง segment สุดท้าย (เรียงตาม end time)
+      let lastSegment = sortedSegments[0];
+      for (const segment of sortedSegments) {
+        if (segment.end > lastSegment.end) {
+          lastSegment = segment;
+        }
+      }
+      
+      const nextStart = lastSegment.end;
+      const nextEnd = Math.min(nextStart + defaultSegmentDuration, duration);
+      
+      // ตรวจสอบว่ามีพื้นที่เพียงพอหรือไม่
+      if (nextStart < duration && (nextEnd - nextStart) >= 1) {
+        startTime.value = nextStart;
+        endTime.value = nextEnd;
+        seekToTime(startTime.value);
+        
+        console.log(`Next segment: ${nextStart}s - ${nextEnd}s (after segment ending at ${lastSegment.end}s)`);
+      } else {
+        // ไม่มีพื้นที่เหลือสำหรับ segment ใหม่
+        console.log(`No space left. Video duration: ${duration}s, Last segment ends at: ${lastSegment.end}s`);
+        // ไม่ต้องแจ้งเตือน - ให้ผู้ใช้รู้จากการที่ไม่มีการเปลี่ยนแปลงใน timeline
+      }
+    };
+    
+    const removeSegment = (segmentId) => {
+      segments.value = segments.value.filter(seg => seg.id !== segmentId);
+    };
+
+    const clearAllSegments = () => {
+      segments.value = [];
+    };
+
+    const selectSegment = (segment) => {
+      startTime.value = segment.start;
+      endTime.value = segment.end;
+      seekToTime(segment.start);
+    };
+
+    const getTotalSegmentsDuration = () => {
+      return segments.value.reduce((total, seg) => total + seg.duration, 0);
+    };
+    
+    // Generate thumbnails for specific segments
+    const generateSegmentThumbnails = async (segments) => {
+      if (!videoRef.value || !videoDuration.value) return [];
+      
+      const video = videoRef.value;
+      
+      // Set crossOrigin before any operations
+      if (!video.crossOrigin) {
+        video.crossOrigin = 'anonymous';
+      }
+      
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Set canvas size for segment thumbnails
+      canvas.width = 120;
+      canvas.height = 64;
+      
+      const segmentThumbnails = [];
+      
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
+        
+        try {
+          // Generate thumbnail from middle of segment
+          const middleTime = segment.start + (segment.duration / 2);
+          const thumbnailUrl = await generateThumbnailAtTime(video, canvas, ctx, middleTime);
+          
+          segmentThumbnails.push({
+            segmentId: segment.id,
+            segmentIndex: i,
+            time: middleTime,
+            url: thumbnailUrl,
+            segment: segment
+          });
+          
+        } catch (error) {
+          console.warn(`Failed to generate thumbnail for segment ${i}:`, error);
+          // Add placeholder thumbnail
+          segmentThumbnails.push({
+            segmentId: segment.id,
+            segmentIndex: i,
+            time: segment.start + (segment.duration / 2),
+            url: null,
+            segment: segment
+          });
+        }
+      }
+      
+      return segmentThumbnails;
+    };
+    
+    // Helper function to generate thumbnail at specific time
+    const generateThumbnailAtTime = (video, canvas, ctx, time) => {
+      return new Promise((resolve, reject) => {
+        const originalTime = video.currentTime;
+        
+        const onSeeked = () => {
+          try {
+            video.removeEventListener('seeked', onSeeked);
+            
+            // Draw video frame to canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Convert to data URL
+            const dataURL = canvas.toDataURL('image/jpeg', 0.8);
+            
+            // Restore original time
+            video.currentTime = originalTime;
+            
+            resolve(dataURL);
+          } catch (error) {
+            video.removeEventListener('seeked', onSeeked);
+            video.currentTime = originalTime;
+            reject(error);
+          }
+        };
+        
+        video.addEventListener('seeked', onSeeked);
+        video.currentTime = time;
+      });
+    };
+
+    return {
+      // Core state
+      videoFile,
+      videoUrl,
+      videoDuration,
+      currentTime,
+      startTime,
+      endTime,
+      trimDuration,
+      isProcessing,
+      progressPercentage,
+      canTrim,
+      thumbnails,
+      isPreviewPlaying,
+      isVideoPlaying,
+      volume,
+      isMuted,
+      showExportOptions,
+      exportSettings,
+      qualityOptions,
+      
+      // Multi-segment state
+      segments,
+      currentSegmentIndex,
+      isMultiSegmentMode,
+      
+      // Refs
+      videoRef,
+      timelineRef,
+      unifiedTimelineRef,
+      progressBarRef,
+      isGeneratingThumbnails,
+      thumbnailProgress,
+      
+      // Computed properties
+      timeMarkers,
+      recommendedSegmentDuration,
+      
+      // Methods
+      closeModal,
+      onVideoLoaded,
+      onTimeUpdate,
+      handleMultiSegmentPreview,
+      jumpToNextSegment,
+      jumpToStart,
+      jumpToEnd,
+      adjustStartTime,
+      adjustEndTime,
+      playFromStart,
+      stopPreview,
+      togglePlayPause,
+      seekFromProgressBar,
+      startProgressDrag,
+      toggleMute,
+      updateVolume,
+      toggleFullscreen,
+      seekToTime,
+      startTrimming,
+      cancelExport,
+      resetExportSettings,
+      confirmExport,
+      formatTime,
+      startDrag,
+      onTimelineClick,
+      updateStartTimeFromInput,
+      updateEndTimeFromInput,
+      getTimeIntervals,
+      
+      // Multi-segment functions
+      addSegment,
+      removeSegment,
+      clearAllSegments,
+      selectSegment,
+      getTotalSegmentsDuration,
+      findNextSequentialSlot,
+      
+      // Segment dragging functions
+      startSegmentDrag,
+      startUnifiedSegmentDrag,
+      isDraggingSegment,
+      dragSegmentData,
+      
+      // Thumbnail functions
+      generateSegmentThumbnails,
+      generateThumbnailAtTime
+    };
+  }
+};
+</script>
+
+<style scoped>
+/* Multi-segment styling */
+.segment-container {
+  transition: all 0.2s ease-in-out;
+}
+
+.segment-container:hover {
+  border-color: #8B5CF6 !important;
+  background-color: rgba(139, 92, 246, 0.7) !important;
+}
+
+.segment-drag-handle {
+  transition: opacity 0.2s ease-in-out, background-color 0.2s ease-in-out;
+}
+
+.segment-drag-handle:hover {
+  background-color: #7C3AED !important;
+}
+
+/* Dragging state */
+.segment-dragging {
+  border-color: #6D28D9 !important;
+  background-color: rgba(109, 40, 217, 0.8) !important;
+  box-shadow: 0 4px 12px rgba(109, 40, 217, 0.3);
+}
+
+/* Video sequence preview styling */
+.video-sequence-segment {
+  transition: all 0.2s ease-in-out;
+  position: relative;
+  overflow: hidden;
+}
+
+.video-sequence-segment::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  transition: left 0.6s ease-in-out;
+}
+
+.video-sequence-segment:hover::before {
+  left: 100%;
+}
+
+/* Custom range slider styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 12px;
+  width: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  height: 12px;
+  width: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Audio volume slider styling */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.slider::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Video container */
+video {
+  background: #000;
+}
+</style>

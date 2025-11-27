@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Multi-File Drag Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .file-item {
+            width: 120px; height: 80px; background: white; border: 2px solid #ddd;
+            margin: 10px; display: inline-block; position: relative; cursor: move;
+            border-radius: 8px; user-select: none; text-align: center; padding: 10px;
+            transition: all 0.2s;
+        }
+        .file-item:hover { transform: translateY(-2px); }
+        .file-item.selected { border-color: #007bff; background: #e7f3ff; }
+        .file-item.dragging { opacity: 0.6; }
+        
+        .folder {
+            width: 200px; height: 120px; background: #fff3cd; border: 3px dashed #ffc107;
+            margin: 20px; display: inline-block; text-align: center; line-height: 120px;
+            font-weight: bold; border-radius: 8px;
+        }
+        .folder.drop-highlight { background: #d4edda; border-color: #28a745; }
+        
+        .checkbox { position: absolute; top: 5px; left: 5px; }
+        .controls { margin: 20px 0; }
+        .btn { background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; margin: 5px; cursor: pointer; }
+        .status { margin: 10px 0; padding: 10px; background: white; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h2>🧪 Simple Multi-File Drag Test</h2>
+    
+    <div class="controls">
+        <button class="btn" onclick="selectMultiple()">เลือกหลายไฟล์</button>
+        <button class="btn" onclick="clearAll()">ล้างการเลือก</button>
+        <div class="status">
+            <strong>Status:</strong> <span id="status">เลือกไฟล์และลองลาก</span>
+        </div>
+    </div>
+    
+    <div>
+        <h3>Files:</h3>
+        <div class="file-item" data-file-id="file1" draggable="true">
+            <input type="checkbox" class="checkbox" />
+            <div>📄<br>File 1</div>
+        </div>
+        <div class="file-item" data-file-id="file2" draggable="true">
+            <input type="checkbox" class="checkbox" />
+            <div>📄<br>File 2</div>
+        </div>
+        <div class="file-item" data-file-id="file3" draggable="true">
+            <input type="checkbox" class="checkbox" />
+            <div>📄<br>File 3</div>
+        </div>
+        <div class="file-item" data-file-id="file4" draggable="true">
+            <input type="checkbox" class="checkbox" />
+            <div>📄<br>File 4</div>
+        </div>
+    </div>
+    
+    <div>
+        <h3>Target:</h3>
+        <div class="folder" id="target-folder">
+            📁 วางไฟล์ที่นี่
+        </div>
+    </div>
+
+    <script>
+        let selectedFiles = new Set();
+        
+        function createSimpleDragImage(fileCount) {
+            const container = document.createElement('div');
+            container.style.cssText = `
+                position: absolute;
+                top: -2000px;
+                left: -2000px;
+                width: 150px;
+                height: 100px;
+                background: white;
+                border: 2px solid #007bff;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                font-family: Arial, sans-serif;
+                z-index: 9999;
+            `;
+            
+            // Stack backgrounds
+            const bg1 = document.createElement('div');
+            bg1.style.cssText = `
+                position: absolute;
+                top: -4px; left: -4px; right: 4px; bottom: 4px;
+                background: rgba(0,123,255,0.2);
+                border-radius: 8px;
+                z-index: -2;
+            `;
+            
+            const bg2 = document.createElement('div');
+            bg2.style.cssText = `
+                position: absolute;
+                top: -2px; left: -2px; right: 2px; bottom: 2px;
+                background: rgba(0,123,255,0.4);
+                border-radius: 8px;
+                z-index: -1;
+            `;
+            
+            container.appendChild(bg1);
+            container.appendChild(bg2);
+            
+            // Icon
+            const icon = document.createElement('div');
+            icon.style.cssText = 'font-size: 32px; margin-bottom: 4px;';
+            icon.textContent = '📁';
+            container.appendChild(icon);
+            
+            // Text
+            const text = document.createElement('div');
+            text.style.cssText = 'font-size: 14px; font-weight: bold; color: #495057;';
+            text.textContent = `${fileCount} ไฟล์`;
+            container.appendChild(text);
+            
+            // Badge
+            const badge = document.createElement('div');
+            badge.style.cssText = `
+                position: absolute;
+                top: -6px; right: -6px;
+                width: 24px; height: 24px;
+                background: #28a745;
+                border: 2px solid white;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-weight: bold;
+                font-size: 11px;
+            `;
+            badge.textContent = fileCount;
+            container.appendChild(badge);
+            
+            document.body.appendChild(container);
+            console.log('Created drag image for', fileCount, 'files');
+            return container;
+        }
+        
+        function updateStatus() {
+            document.getElementById('status').textContent = `เลือกไฟล์: ${selectedFiles.size} ไฟล์`;
+        }
+        
+        function selectMultiple() {
+            const checkboxes = document.querySelectorAll('.checkbox');
+            for (let i = 0; i < 3; i++) {
+                if (checkboxes[i]) {
+                    checkboxes[i].checked = true;
+                    checkboxes[i].dispatchEvent(new Event('change'));
+                }
+            }
+        }
+        
+        function clearAll() {
+            document.querySelectorAll('.checkbox').forEach(cb => {
+                cb.checked = false;
+                cb.dispatchEvent(new Event('change'));
+            });
+        }
+        
+        // Event handlers
+        document.querySelectorAll('.checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                const fileItem = e.target.closest('.file-item');
+                const fileId = fileItem.dataset.fileId;
+                
+                if (e.target.checked) {
+                    selectedFiles.add(fileId);
+                    fileItem.classList.add('selected');
+                } else {
+                    selectedFiles.delete(fileId);
+                    fileItem.classList.remove('selected');
+                }
+                updateStatus();
+            });
+        });
+        
+        document.querySelectorAll('.file-item').forEach(fileItem => {
+            fileItem.addEventListener('dragstart', (e) => {
+                const fileId = fileItem.dataset.fileId;
+                console.log('Drag start:', fileId, 'Selected:', selectedFiles.size);
+                
+                if (selectedFiles.size > 1 && selectedFiles.has(fileId)) {
+                    console.log('Multi-drag detected');
+                    
+                    const dragImage = createSimpleDragImage(selectedFiles.size);
+                    
+                    // Set drag image
+                    setTimeout(() => {
+                        try {
+                            e.dataTransfer.setDragImage(dragImage, 75, 50);
+                            console.log('✅ Drag image set successfully');
+                        } catch (error) {
+                            console.log('❌ setDragImage failed:', error);
+                        }
+                        
+                        // Cleanup
+                        setTimeout(() => {
+                            if (dragImage.parentNode) {
+                                dragImage.parentNode.removeChild(dragImage);
+                            }
+                        }, 500);
+                    }, 0);
+                    
+                    selectedFiles.forEach(id => {
+                        const el = document.querySelector(`[data-file-id="${id}"]`);
+                        if (el) el.classList.add('dragging');
+                    });
+                } else {
+                    console.log('Single drag');
+                    fileItem.classList.add('dragging');
+                }
+            });
+            
+            fileItem.addEventListener('dragend', () => {
+                document.querySelectorAll('.file-item').forEach(item => {
+                    item.classList.remove('dragging');
+                });
+            });
+        });
+        
+        // Folder handlers
+        const folder = document.getElementById('target-folder');
+        folder.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            folder.classList.add('drop-highlight');
+        });
+        
+        folder.addEventListener('dragleave', () => {
+            folder.classList.remove('drop-highlight');
+        });
+        
+        folder.addEventListener('drop', (e) => {
+            e.preventDefault();
+            folder.classList.remove('drop-highlight');
+            
+            if (selectedFiles.size > 1) {
+                alert(`ย้ายไฟล์ ${selectedFiles.size} ไฟล์สำเร็จ!`);
+            } else {
+                alert('ย้ายไฟล์ 1 ไฟล์สำเร็จ!');
+            }
+        });
+        
+        updateStatus();
+    </script>
+</body>
+</html>

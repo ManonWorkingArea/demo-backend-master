@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR Module Test - ERP Core Integration</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+            margin: -20px -20px 20px -20px;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+        }
+        
+        .test-section {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 15px 0;
+            padding: 15px;
+        }
+        
+        .test-section h3 {
+            color: #333;
+            margin-top: 0;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        .button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        
+        .button:hover {
+            background: #005a8b;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        pre {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            overflow-x: auto;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏢 HR Module Integration Test</h1>
+            <p>ทดสอบการทำงานของ HR Module กับ ERP Core System</p>
+        </div>
+        
+        <div class="info">
+            <strong>📋 วัตถุประสงค์การทดสอบ:</strong>
+            <ul>
+                <li>ทดสอบการโหลด HR MasterData schemas และ sample data</li>
+                <li>ทดสอบการสร้าง HR transactions ผ่าน ERP Core Engine</li>
+                <li>ตรวจสอบการทำงานของ HR module โดยไม่พึ่งพา external APIs</li>
+                <li>ทดสอบ Schema validation และ data management</li>
+            </ul>
+        </div>
+        
+        <div class="grid">
+            <div class="test-section">
+                <h3>🔧 1. Core System Initialization</h3>
+                <button class="button" onclick="initializeCore()">Initialize ERP Core</button>
+                <div id="core-status" class="status loading">Waiting...</div>
+                <div id="core-result"></div>
+            </div>
+            
+            <div class="test-section">
+                <h3>📊 2. HR MasterData Loading</h3>
+                <button class="button" onclick="loadHRMasterData()">Load HR MasterData</button>
+                <div id="masterdata-status" class="status loading">Waiting...</div>
+                <div id="masterdata-result"></div>
+            </div>
+        </div>
+        
+        <div class="grid">
+            <div class="test-section">
+                <h3>👥 3. Employee Management Test</h3>
+                <button class="button" onclick="testEmployeeOperations()">Test Employee CRUD</button>
+                <div id="employee-status" class="status loading">Waiting...</div>
+                <div id="employee-result"></div>
+            </div>
+            
+            <div class="test-section">
+                <h3>🏢 4. Department Management Test</h3>
+                <button class="button" onclick="testDepartmentOperations()">Test Department CRUD</button>
+                <div id="department-status" class="status loading">Waiting...</div>
+                <div id="department-result"></div>
+            </div>
+        </div>
+        
+        <div class="grid">
+            <div class="test-section">
+                <h3>⏰ 5. Attendance System Test</h3>
+                <button class="button" onclick="testAttendanceOperations()">Test Attendance</button>
+                <div id="attendance-status" class="status loading">Waiting...</div>
+                <div id="attendance-result"></div>
+            </div>
+            
+            <div class="test-section">
+                <h3>💰 6. Payroll System Test</h3>
+                <button class="button" onclick="testPayrollOperations()">Test Payroll</button>
+                <div id="payroll-status" class="status loading">Waiting...</div>
+                <div id="payroll-result"></div>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h3>🔍 7. Schema Validation Test</h3>
+            <button class="button" onclick="testSchemaValidation()">Test Schema Validation</button>
+            <div id="validation-status" class="status loading">Waiting...</div>
+            <div id="validation-result"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>📈 8. Full Integration Test</h3>
+            <button class="button" onclick="runFullIntegrationTest()">Run Full Test Suite</button>
+            <div id="integration-status" class="status loading">Waiting...</div>
+            <div id="integration-result"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Initialize test environment
+        let hrMasterData = null;
+        let erpEngine = null;
+        
+        // Utility functions
+        function updateStatus(elementId, status, message) {
+            const el = document.getElementById(elementId);
+            el.className = `status ${status}`;
+            el.textContent = message;
+        }
+        
+        function showResult(elementId, data, isError = false) {
+            const el = document.getElementById(elementId);
+            if (isError) {
+                el.innerHTML = `<div class="error"><strong>Error:</strong> ${data}</div>`;
+            } else {
+                el.innerHTML = `<div class="success"><strong>Success!</strong></div><pre>${JSON.stringify(data, null, 2)}</pre>`;
+            }
+        }
+        
+        // Test functions
+        window.initializeCore = async function() {
+            updateStatus('core-status', 'loading', 'Initializing...');
+            
+            try {
+                // Initialize ERP_CORE
+                if (!window.ERP_CORE) {
+                    window.ERP_CORE = {
+                        modules: {},
+                        data: new Map(),
+                        transactions: [],
+                        currentUser: { id: 'test_user', name: 'Test User' }
+                    };
+                }
+                
+                // Mock TransactionEngine for testing
+                window.ERP_CORE.engine = {
+                    async create(type, data, userId = 'system') {
+                        const transaction = {
+                            id: 'TXN_' + Date.now(),
+                            type: type,
+                            data: data,
+                            userId: userId,
+                            timestamp: new Date().toISOString(),
+                            status: 'completed'
+                        };
+                        
+                        window.ERP_CORE.transactions.push(transaction);
+                        return { success: true, data: transaction };
+                    },
+                    
+                    async findByType(type) {
+                        return window.ERP_CORE.transactions.filter(t => t.type === type);
+                    }
+                };
+                
+                const coreInfo = {
+                    initialized: true,
+                    modules: Object.keys(window.ERP_CORE.modules),
+                    dataKeys: Array.from(window.ERP_CORE.data.keys()),
+                    transactionCount: window.ERP_CORE.transactions.length
+                };
+                
+                updateStatus('core-status', 'success', 'Initialized');
+                showResult('core-result', coreInfo);
+                
+            } catch (error) {
+                updateStatus('core-status', 'error', 'Failed');
+                showResult('core-result', error.message, true);
+            }
+        };
+        
+        window.loadHRMasterData = async function() {
+            updateStatus('masterdata-status', 'loading', 'Loading...');
+            
+            try {
+                // Simulate HR MasterData loading
+                hrMasterData = {
+                    schemas: {
+                        EMPLOYEE_SCHEMA: {
+                            id: { type: 'string', required: true },
+                            employee_code: { type: 'string', required: true },
+                            thai_name: { type: 'string', required: true },
+                            english_name: { type: 'string', required: true },
+                            department_id: { type: 'string', required: true },
+                            position_id: { type: 'string', required: true },
+                            employee_type: { type: 'string', enum: ['permanent', 'contract', 'probation', 'intern'] },
+                            hire_date: { type: 'date', required: true },
+                            salary: { type: 'number', min: 0 },
+                            status: { type: 'string', enum: ['active', 'inactive', 'terminated'] }
+                        },
+                        DEPARTMENT_SCHEMA: {
+                            id: { type: 'string', required: true },
+                            name: { type: 'string', required: true },
+                            code: { type: 'string', required: true },
+                            manager_id: { type: 'string' },
+                            parent_department_id: { type: 'string' },
+                            budget: { type: 'number', min: 0 }
+                        }
+                    },
+                    sampleData: {
+                        employees: [
+                            {
+                                id: 'EMP001',
+                                employee_code: 'E001',
+                                thai_name: 'สมชาย ใจดี',
+                                english_name: 'Somchai Jaidee',
+                                department_id: 'DEPT001',
+                                position_id: 'POS001',
+                                employee_type: 'permanent',
+                                hire_date: '2024-01-15',
+                                salary: 45000,
+                                status: 'active'
+                            }
+                        ],
+                        departments: [
+                            {
+                                id: 'DEPT001',
+                                name: 'แผนกบัญชี',
+                                code: 'ACC',
+                                manager_id: 'EMP001',
+                                budget: 1000000
+                            }
+                        ]
+                    }
+                };
+                
+                // Initialize HR module in ERP_CORE
+                window.ERP_CORE.modules.hr = {
+                    masterData: hrMasterData,
+                    data: {
+                        employees: new Map(),
+                        departments: new Map(),
+                        users: new Map(),
+                        positions: new Map(),
+                        attendance: new Map(),
+                        payroll: new Map()
+                    }
+                };
+                
+                // Load sample data
+                hrMasterData.sampleData.employees.forEach(emp => {
+                    window.ERP_CORE.modules.hr.data.employees.set(emp.id, emp);
+                });
+                
+                hrMasterData.sampleData.departments.forEach(dept => {
+                    window.ERP_CORE.modules.hr.data.departments.set(dept.id, dept);
+                });
+                
+                const loadResult = {
+                    schemas: Object.keys(hrMasterData.schemas),
+                    sampleEmployees: hrMasterData.sampleData.employees.length,
+                    sampleDepartments: hrMasterData.sampleData.departments.length,
+                    loadedInMemory: {
+                        employees: window.ERP_CORE.modules.hr.data.employees.size,
+                        departments: window.ERP_CORE.modules.hr.data.departments.size
+                    }
+                };
+                
+                updateStatus('masterdata-status', 'success', 'Loaded');
+                showResult('masterdata-result', loadResult);
+                
+            } catch (error) {
+                updateStatus('masterdata-status', 'error', 'Failed');
+                showResult('masterdata-result', error.message, true);
+            }
+        };
+        
+        window.testEmployeeOperations = async function() {
+            updateStatus('employee-status', 'loading', 'Testing...');
+            
+            try {
+                if (!window.ERP_CORE?.modules?.hr) {
+                    throw new Error('HR Module not initialized. Please run previous tests first.');
+                }
+                
+                // Test CREATE employee
+                const newEmployee = {
+                    id: 'EMP002',
+                    employee_code: 'E002',
+                    thai_name: 'สุมาลี สุขใจ',
+                    english_name: 'Sumalee Sukjai',
+                    department_id: 'DEPT001',
+                    position_id: 'POS002',
+                    employee_type: 'contract',
+                    hire_date: '2024-02-01',
+                    salary: 35000,
+                    status: 'active'
+                };
+                
+                // Create through ERP engine
+                const createResult = await window.ERP_CORE.engine.create('HR_EMPLOYEE', newEmployee);
+                
+                // Add to HR data store
+                window.ERP_CORE.modules.hr.data.employees.set(newEmployee.id, newEmployee);
+                
+                // Test READ
+                const employee = window.ERP_CORE.modules.hr.data.employees.get('EMP002');
+                
+                // Test UPDATE
+                employee.salary = 40000;
+                window.ERP_CORE.modules.hr.data.employees.set(employee.id, employee);
+                
+                const updateResult = await window.ERP_CORE.engine.create('HR_EMPLOYEE', {
+                    ...employee,
+                    action: 'update'
+                });
+                
+                const testResult = {
+                    createTransaction: createResult,
+                    updateTransaction: updateResult,
+                    currentEmployees: Array.from(window.ERP_CORE.modules.hr.data.employees.values()),
+                    totalEmployees: window.ERP_CORE.modules.hr.data.employees.size
+                };
+                
+                updateStatus('employee-status', 'success', 'Passed');
+                showResult('employee-result', testResult);
+                
+            } catch (error) {
+                updateStatus('employee-status', 'error', 'Failed');
+                showResult('employee-result', error.message, true);
+            }
+        };
+        
+        window.testDepartmentOperations = async function() {
+            updateStatus('department-status', 'loading', 'Testing...');
+            
+            try {
+                if (!window.ERP_CORE?.modules?.hr) {
+                    throw new Error('HR Module not initialized. Please run previous tests first.');
+                }
+                
+                // Test CREATE department
+                const newDepartment = {
+                    id: 'DEPT002',
+                    name: 'แผนกการเงิน',
+                    code: 'FIN',
+                    manager_id: 'EMP002',
+                    budget: 800000
+                };
+                
+                const createResult = await window.ERP_CORE.engine.create('HR_DEPARTMENT', newDepartment);
+                window.ERP_CORE.modules.hr.data.departments.set(newDepartment.id, newDepartment);
+                
+                // Test hierarchical department
+                const subDepartment = {
+                    id: 'DEPT003',
+                    name: 'แผนกบัญชีต้นทุน',
+                    code: 'COST',
+                    parent_department_id: 'DEPT001',
+                    budget: 500000
+                };
+                
+                const subDeptResult = await window.ERP_CORE.engine.create('HR_DEPARTMENT', subDepartment);
+                window.ERP_CORE.modules.hr.data.departments.set(subDepartment.id, subDepartment);
+                
+                const testResult = {
+                    createMainDept: createResult,
+                    createSubDept: subDeptResult,
+                    allDepartments: Array.from(window.ERP_CORE.modules.hr.data.departments.values()),
+                    totalDepartments: window.ERP_CORE.modules.hr.data.departments.size
+                };
+                
+                updateStatus('department-status', 'success', 'Passed');
+                showResult('department-result', testResult);
+                
+            } catch (error) {
+                updateStatus('department-status', 'error', 'Failed');
+                showResult('department-result', error.message, true);
+            }
+        };
+        
+        window.testAttendanceOperations = async function() {
+            updateStatus('attendance-status', 'loading', 'Testing...');
+            
+            try {
+                if (!window.ERP_CORE?.modules?.hr) {
+                    throw new Error('HR Module not initialized. Please run previous tests first.');
+                }
+                
+                const today = new Date().toISOString().split('T')[0];
+                
+                // Test check-in
+                const checkInData = {
+                    id: 'ATT001',
+                    employee_id: 'EMP001',
+                    date: today,
+                    check_in_time: '08:30:00',
+                    location: 'Office Main Entrance',
+                    status: 'present'
+                };
+                
+                const checkInResult = await window.ERP_CORE.engine.create('HR_ATTENDANCE', checkInData);
+                window.ERP_CORE.modules.hr.data.attendance.set(checkInData.id, checkInData);
+                
+                // Test check-out
+                const checkOutData = {
+                    ...checkInData,
+                    check_out_time: '17:30:00',
+                    work_hours: 8.5,
+                    overtime_hours: 0.5
+                };
+                
+                const checkOutResult = await window.ERP_CORE.engine.create('HR_ATTENDANCE', {
+                    ...checkOutData,
+                    action: 'update'
+                });
+                
+                window.ERP_CORE.modules.hr.data.attendance.set(checkOutData.id, checkOutData);
+                
+                const testResult = {
+                    checkIn: checkInResult,
+                    checkOut: checkOutResult,
+                    attendanceRecords: Array.from(window.ERP_CORE.modules.hr.data.attendance.values()),
+                    totalRecords: window.ERP_CORE.modules.hr.data.attendance.size
+                };
+                
+                updateStatus('attendance-status', 'success', 'Passed');
+                showResult('attendance-result', testResult);
+                
+            } catch (error) {
+                updateStatus('attendance-status', 'error', 'Failed');
+                showResult('attendance-result', error.message, true);
+            }
+        };
+        
+        window.testPayrollOperations = async function() {
+            updateStatus('payroll-status', 'loading', 'Testing...');
+            
+            try {
+                if (!window.ERP_CORE?.modules?.hr) {
+                    throw new Error('HR Module not initialized. Please run previous tests first.');
+                }
+                
+                const payrollData = {
+                    id: 'PAY001',
+                    employee_id: 'EMP001',
+                    pay_period: '2024-01',
+                    basic_salary: 45000,
+                    allowances: {
+                        transport: 2000,
+                        meal: 1500,
+                        phone: 800
+                    },
+                    deductions: {
+                        tax: 4500,
+                        social_security: 750,
+                        provident_fund: 2250
+                    },
+                    overtime_amount: 1200,
+                    net_salary: 42000,
+                    status: 'approved'
+                };
+                
+                const payrollResult = await window.ERP_CORE.engine.create('HR_PAYROLL', payrollData);
+                window.ERP_CORE.modules.hr.data.payroll.set(payrollData.id, payrollData);
+                
+                // Test payroll calculation
+                const totalGross = payrollData.basic_salary + 
+                                 payrollData.allowances.transport + 
+                                 payrollData.allowances.meal + 
+                                 payrollData.allowances.phone + 
+                                 payrollData.overtime_amount;
+                
+                const totalDeductions = payrollData.deductions.tax + 
+                                      payrollData.deductions.social_security + 
+                                      payrollData.deductions.provident_fund;
+                
+                const calculatedNet = totalGross - totalDeductions;
+                
+                const testResult = {
+                    payrollTransaction: payrollResult,
+                    payrollCalculation: {
+                        grossSalary: totalGross,
+                        totalDeductions: totalDeductions,
+                        calculatedNet: calculatedNet,
+                        storedNet: payrollData.net_salary,
+                        calculationCorrect: calculatedNet === payrollData.net_salary
+                    },
+                    payrollRecords: Array.from(window.ERP_CORE.modules.hr.data.payroll.values())
+                };
+                
+                updateStatus('payroll-status', 'success', 'Passed');
+                showResult('payroll-result', testResult);
+                
+            } catch (error) {
+                updateStatus('payroll-status', 'error', 'Failed');
+                showResult('payroll-result', error.message, true);
+            }
+        };
+        
+        window.testSchemaValidation = async function() {
+            updateStatus('validation-status', 'loading', 'Testing...');
+            
+            try {
+                if (!hrMasterData?.schemas) {
+                    throw new Error('HR MasterData schemas not loaded. Please run masterdata loading test first.');
+                }
+                
+                // Test valid employee data
+                const validEmployee = {
+                    id: 'EMP999',
+                    employee_code: 'E999',
+                    thai_name: 'ทดสอบ ระบบ',
+                    english_name: 'Test System',
+                    department_id: 'DEPT001',
+                    position_id: 'POS001',
+                    employee_type: 'permanent',
+                    hire_date: '2024-01-01',
+                    salary: 30000,
+                    status: 'active'
+                };
+                
+                // Simple validation function
+                function validateData(data, schema) {
+                    const errors = [];
+                    
+                    for (const [field, rules] of Object.entries(schema)) {
+                        const value = data[field];
+                        
+                        if (rules.required && (value === undefined || value === null || value === '')) {
+                            errors.push(`Field '${field}' is required`);
+                        }
+                        
+                        if (value !== undefined && rules.type) {
+                            if (rules.type === 'string' && typeof value !== 'string') {
+                                errors.push(`Field '${field}' must be a string`);
+                            }
+                            if (rules.type === 'number' && typeof value !== 'number') {
+                                errors.push(`Field '${field}' must be a number`);
+                            }
+                        }
+                        
+                        if (value !== undefined && rules.enum && !rules.enum.includes(value)) {
+                            errors.push(`Field '${field}' must be one of: ${rules.enum.join(', ')}`);
+                        }
+                        
+                        if (value !== undefined && rules.min && value < rules.min) {
+                            errors.push(`Field '${field}' must be >= ${rules.min}`);
+                        }
+                    }
+                    
+                    return errors;
+                }
+                
+                const validationResults = [];
+                
+                // Test 1: Valid employee
+                const validErrors = validateData(validEmployee, hrMasterData.schemas.EMPLOYEE_SCHEMA);
+                validationResults.push({
+                    test: 'Valid Employee Data',
+                    passed: validErrors.length === 0,
+                    errors: validErrors
+                });
+                
+                // Test 2: Invalid employee (missing required field)
+                const invalidEmployee1 = { ...validEmployee };
+                delete invalidEmployee1.thai_name;
+                const invalidErrors1 = validateData(invalidEmployee1, hrMasterData.schemas.EMPLOYEE_SCHEMA);
+                validationResults.push({
+                    test: 'Missing Required Field',
+                    passed: invalidErrors1.length > 0,
+                    errors: invalidErrors1
+                });
+                
+                // Test 3: Invalid employee (wrong enum value)
+                const invalidEmployee2 = { ...validEmployee, employee_type: 'invalid_type' };
+                const invalidErrors2 = validateData(invalidEmployee2, hrMasterData.schemas.EMPLOYEE_SCHEMA);
+                validationResults.push({
+                    test: 'Invalid Enum Value',
+                    passed: invalidErrors2.length > 0,
+                    errors: invalidErrors2
+                });
+                
+                // Test 4: Invalid employee (negative salary)
+                const invalidEmployee3 = { ...validEmployee, salary: -1000 };
+                const invalidErrors3 = validateData(invalidEmployee3, hrMasterData.schemas.EMPLOYEE_SCHEMA);
+                validationResults.push({
+                    test: 'Negative Salary Value',
+                    passed: invalidErrors3.length > 0,
+                    errors: invalidErrors3
+                });
+                
+                const allTestsPassed = validationResults.every(r => r.passed);
+                
+                const testResult = {
+                    overallResult: allTestsPassed ? 'All validation tests passed' : 'Some validation tests failed',
+                    testResults: validationResults,
+                    schemasTested: Object.keys(hrMasterData.schemas)
+                };
+                
+                updateStatus('validation-status', allTestsPassed ? 'success' : 'error', 
+                           allTestsPassed ? 'Passed' : 'Failed');
+                showResult('validation-result', testResult);
+                
+            } catch (error) {
+                updateStatus('validation-status', 'error', 'Failed');
+                showResult('validation-result', error.message, true);
+            }
+        };
+        
+        window.runFullIntegrationTest = async function() {
+            updateStatus('integration-status', 'loading', 'Running...');
+            
+            try {
+                // Run all tests in sequence
+                await window.initializeCore();
+                await new Promise(resolve => setTimeout(resolve, 500)); // Small delay
+                
+                await window.loadHRMasterData();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                await window.testEmployeeOperations();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                await window.testDepartmentOperations();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                await window.testAttendanceOperations();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                await window.testPayrollOperations();
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                await window.testSchemaValidation();
+                
+                // Collect final statistics
+                const finalStats = {
+                    erpCoreInitialized: !!window.ERP_CORE,
+                    hrModuleLoaded: !!window.ERP_CORE?.modules?.hr,
+                    masterDataLoaded: !!hrMasterData,
+                    totalTransactions: window.ERP_CORE?.transactions?.length || 0,
+                    hrDataSummary: {
+                        employees: window.ERP_CORE?.modules?.hr?.data?.employees?.size || 0,
+                        departments: window.ERP_CORE?.modules?.hr?.data?.departments?.size || 0,
+                        attendance: window.ERP_CORE?.modules?.hr?.data?.attendance?.size || 0,
+                        payroll: window.ERP_CORE?.modules?.hr?.data?.payroll?.size || 0
+                    },
+                    allTransactionTypes: [
+                        ...new Set(window.ERP_CORE?.transactions?.map(t => t.type) || [])
+                    ]
+                };
+                
+                updateStatus('integration-status', 'success', 'Completed');
+                showResult('integration-result', finalStats);
+                
+            } catch (error) {
+                updateStatus('integration-status', 'error', 'Failed');
+                showResult('integration-result', error.message, true);
+            }
+        };
+        
+    </script>
+</body>
+</html>

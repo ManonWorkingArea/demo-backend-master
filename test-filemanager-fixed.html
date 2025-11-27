@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FileManager Multi-File Drag Test - Fixed</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .file-item {
+            width: 120px; height: 80px; background: #f8f9fa; border: 2px solid #dee2e6;
+            margin: 10px; display: inline-block; position: relative; cursor: move;
+            border-radius: 8px; user-select: none; transition: all 0.2s;
+        }
+        .file-item.selected { border-color: #007bff; background: #e7f3ff; }
+        .file-item.dragging { opacity: 0.5; transform: scale(0.95); }
+        .folder {
+            width: 200px; height: 120px; background: #fff3cd; border: 2px dashed #ffc107;
+            margin: 20px; display: inline-block; text-align: center; line-height: 120px;
+            font-weight: bold; border-radius: 8px; transition: all 0.2s;
+        }
+        .folder.drop-highlight { background: #d4edda; border-color: #28a745; }
+        .checkbox { position: absolute; top: 5px; left: 5px; }
+        .controls { margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px; }
+        .debug { 
+            position: fixed; bottom: 10px; right: 10px; background: #000; color: #fff;
+            padding: 15px; max-width: 400px; font-size: 11px; overflow-y: auto;
+            max-height: 300px; border-radius: 8px; font-family: monospace;
+        }
+        .status { margin: 10px 0; padding: 10px; background: #e9ecef; border-radius: 5px; }
+        .clear-btn { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h2>🧪 FileManager Multi-File Drag & Drop Test (Fixed)</h2>
+    
+    <div class="controls">
+        <h3>📋 Testing Instructions:</h3>
+        <ol>
+            <li>✅ <strong>เลือกไฟล์หลายๆไฟล์</strong> โดยคลิก checkbox</li>
+            <li>🎯 <strong>ลากไฟล์ใดไฟล์หนึ่งที่เลือกไว้</strong></li>
+            <li>📁 <strong>วางลงในโฟลเดอร์</strong></li>
+            <li>🔍 <strong>ดู Debug Log</strong> ด้านล่างขวา</li>
+        </ol>
+        <div class="status">
+            <strong>📊 Status:</strong> 
+            <span id="status">เลือกไฟล์และลองลาก</span>
+        </div>
+        <button class="clear-btn" onclick="clearDebug()">🧹 Clear Debug</button>
+        <button onclick="selectAll()">📋 Select All</button>
+        <button onclick="clearSelection()">❌ Clear Selection</button>
+    </div>
+    
+    <div style="border: 1px solid #ddd; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3>📁 Files:</h3>
+        <div id="files-container">
+            <div class="file-item" data-file-id="file1" draggable="true">
+                <input type="checkbox" class="checkbox" />
+                <div style="padding: 20px; text-align: center;">
+                    <div>📄</div>
+                    <small>File 1</small>
+                </div>
+            </div>
+            <div class="file-item" data-file-id="file2" draggable="true">
+                <input type="checkbox" class="checkbox" />
+                <div style="padding: 20px; text-align: center;">
+                    <div>📄</div>
+                    <small>File 2</small>
+                </div>
+            </div>
+            <div class="file-item" data-file-id="file3" draggable="true">
+                <input type="checkbox" class="checkbox" />
+                <div style="padding: 20px; text-align: center;">
+                    <div>📄</div>
+                    <small>File 3</small>
+                </div>
+            </div>
+            <div class="file-item" data-file-id="file4" draggable="true">
+                <input type="checkbox" class="checkbox" />
+                <div style="padding: 20px; text-align: center;">
+                    <div>📄</div>
+                    <small>File 4</small>
+                </div>
+            </div>
+            <div class="file-item" data-file-id="file5" draggable="true">
+                <input type="checkbox" class="checkbox" />
+                <div style="padding: 20px; text-align: center;">
+                    <div>📄</div>
+                    <small>File 5</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div style="border: 1px solid #ddd; padding: 20px; border-radius: 8px;">
+        <h3>📂 Target Folder:</h3>
+        <div class="folder" id="target-folder">
+            📁 วางไฟล์ที่นี่
+        </div>
+    </div>
+    
+    <div class="debug" id="debug-log">
+        <strong>🔍 Debug Log:</strong><br>
+        <button class="clear-btn" onclick="clearDebug()" style="margin-bottom: 10px;">Clear</button><br>
+    </div>
+
+    <script>
+        let selectedFiles = new Set();
+        let draggedItem = null;
+        
+        function debugLog(...args) {
+            const timestamp = new Date().toLocaleTimeString();
+            console.log('[FileManager Debug]', ...args);
+            const debugDiv = document.getElementById('debug-log');
+            const message = `[${timestamp}] ${args.join(' ')}`;
+            debugDiv.innerHTML += message + '<br>';
+            debugDiv.scrollTop = debugDiv.scrollHeight;
+        }
+        
+        function updateStatus() {
+            const status = document.getElementById('status');
+            status.textContent = `เลือกไฟล์: ${selectedFiles.size} ไฟล์`;
+        }
+        
+        function clearDebug() {
+            document.getElementById('debug-log').innerHTML = '<strong>🔍 Debug Log:</strong><br><button class="clear-btn" onclick="clearDebug()" style="margin-bottom: 10px;">Clear</button><br>';
+        }
+        
+        function selectAll() {
+            document.querySelectorAll('.checkbox').forEach(checkbox => {
+                if (!checkbox.checked) {
+                    checkbox.checked = true;
+                    checkbox.dispatchEvent(new Event('change'));
+                }
+            });
+        }
+        
+        function clearSelection() {
+            document.querySelectorAll('.checkbox').forEach(checkbox => {
+                if (checkbox.checked) {
+                    checkbox.checked = false;
+                    checkbox.dispatchEvent(new Event('change'));
+                }
+            });
+        }
+        
+        // Handle checkbox selection
+        document.querySelectorAll('.checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                const fileItem = e.target.closest('.file-item');
+                const fileId = fileItem.dataset.fileId;
+                
+                debugLog('=== File Selection Toggle ===');
+                debugLog('FileId:', fileId);
+                debugLog('Current selected files:', Array.from(selectedFiles));
+                
+                if (e.target.checked) {
+                    selectedFiles.add(fileId);
+                    fileItem.classList.add('selected');
+                    debugLog('File selected:', fileId);
+                } else {
+                    selectedFiles.delete(fileId);
+                    fileItem.classList.remove('selected');
+                    debugLog('File deselected:', fileId);
+                }
+                
+                debugLog(`Updated selected files: [${Array.from(selectedFiles).join(', ')}], total: ${selectedFiles.size}`);
+                updateStatus();
+            });
+        });
+        
+        // Handle drag start
+        document.querySelectorAll('.file-item').forEach(fileItem => {
+            fileItem.addEventListener('dragstart', (e) => {
+                const fileId = fileItem.dataset.fileId;
+                
+                debugLog('=== Drag Start ===');
+                debugLog('File being dragged:', fileId);
+                debugLog('Selected files count:', selectedFiles.size);
+                debugLog('Selected files:', Array.from(selectedFiles));
+                debugLog('Is dragged file selected?', selectedFiles.has(fileId));
+                
+                // ตรวจสอบว่าเป็น multi-drag หรือ single-drag (เหมือน FileManager)
+                if (selectedFiles.size > 1 && selectedFiles.has(fileId)) {
+                    // Multi-drag
+                    debugLog(`✅ Multi-drag condition met: ${selectedFiles.size} files selected`);
+                    draggedItem = 'multi';
+                    
+                    const selectedIds = Array.from(selectedFiles);
+                    e.dataTransfer.setData('text/plain', JSON.stringify({
+                        type: 'multiple',
+                        fileIds: selectedIds,
+                        source: 'internal'
+                    }));
+                    
+                    debugLog('Multi-drag data set:', selectedIds);
+                    
+                    // Visual feedback
+                    selectedIds.forEach(id => {
+                        const element = document.querySelector(`[data-file-id="${id}"]`);
+                        if (element) element.classList.add('dragging');
+                    });
+                    
+                } else {
+                    // Single drag
+                    debugLog(`❌ Single-drag condition: size=${selectedFiles.size}, hasFile=${selectedFiles.has(fileId)}`);
+                    draggedItem = fileId;
+                    
+                    e.dataTransfer.setData('text/plain', JSON.stringify({
+                        type: 'single',
+                        fileId: fileId,
+                        source: 'internal'
+                    }));
+                    
+                    debugLog('Single drag started:', draggedItem);
+                    fileItem.classList.add('dragging');
+                }
+            });
+            
+            fileItem.addEventListener('dragend', (e) => {
+                debugLog('Dragging ended for:', draggedItem, 'Selected count:', selectedFiles.size);
+                
+                // Clear visual feedback
+                if (draggedItem === 'multi' && selectedFiles.size > 0) {
+                    selectedFiles.forEach(fileId => {
+                        const element = document.querySelector(`[data-file-id="${fileId}"]`);
+                        if (element) element.classList.remove('dragging');
+                    });
+                    debugLog('Cleared visual feedback for selected files:', Array.from(selectedFiles));
+                } else if (draggedItem && draggedItem !== 'multi') {
+                    const element = document.querySelector(`[data-file-id="${draggedItem}"]`);
+                    if (element) element.classList.remove('dragging');
+                    debugLog('Cleared visual feedback for single file:', draggedItem);
+                }
+                
+                draggedItem = null;
+            });
+        });
+        
+        // Handle folder drop
+        const folder = document.getElementById('target-folder');
+        
+        folder.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            folder.classList.add('drop-highlight');
+        });
+        
+        folder.addEventListener('dragleave', (e) => {
+            folder.classList.remove('drop-highlight');
+        });
+        
+        folder.addEventListener('drop', (e) => {
+            e.preventDefault();
+            folder.classList.remove('drop-highlight');
+            
+            debugLog('=== File Drop ===');
+            debugLog('handleFileDrop called with target: target-folder');
+            debugLog('Current draggedItem:', draggedItem);
+            
+            try {
+                const dragText = e.dataTransfer.getData('text/plain');
+                let dragData = null;
+                
+                if (dragText) {
+                    dragData = JSON.parse(dragText);
+                    debugLog('✅ Parsed drag data:', dragData);
+                }
+                
+                if (dragData && dragData.source === 'internal') {
+                    debugLog('✅ Internal drag detected');
+                    
+                    if (dragData.type === 'multiple' && dragData.fileIds) {
+                        debugLog('🎯 Multi-drag detected:', dragData.fileIds);
+                        debugLog(`✅ Multi-drop: Moving ${dragData.fileIds.length} files`);
+                        
+                        // จำลองการย้ายไฟล์
+                        dragData.fileIds.forEach(id => {
+                            const element = document.querySelector(`[data-file-id="${id}"]`);
+                            if (element) {
+                                element.style.display = 'none';
+                            }
+                        });
+                        
+                        debugLog('✅ Multi-drop completed successfully');
+                        alert(`🎉 ย้ายไฟล์ ${dragData.fileIds.length} ไฟล์สำเร็จ!\n${dragData.fileIds.join(', ')}`);
+                        
+                    } else if (dragData.type === 'single' && dragData.fileId) {
+                        debugLog('🎯 Single drag detected:', dragData.fileId);
+                        
+                        const element = document.querySelector(`[data-file-id="${dragData.fileId}"]`);
+                        if (element) {
+                            element.style.display = 'none';
+                        }
+                        
+                        alert(`🎉 ย้ายไฟล์ ${dragData.fileId} สำเร็จ!`);
+                    }
+                } else {
+                    debugLog('❌ No valid drag operation detected');
+                }
+                
+            } catch (error) {
+                debugLog('❌ Drop error:', error);
+            }
+        });
+        
+        debugLog('🚀 Test initialized - Ready for testing!');
+        updateStatus();
+    </script>
+</body>
+</html>

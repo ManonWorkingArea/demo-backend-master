@@ -1,0 +1,252 @@
+<script>
+import Breadcrumbs from '@/interface/template/outline/Breadcrumbs.vue';
+import CryptoJS from 'crypto-js';
+import storageManager from '@/plugins/storage';
+import { sendEmail } from '@/plugins/sendEmail';
+
+export default {
+  name: 'ContactUs',
+  inject: ['apiServer'],
+  data() {
+    return {
+      firstname: '',
+      lastname: '',
+      phone: '',
+      email: '',
+      username: '',
+      password: '',
+      role: '',
+      configs: storageManager.get('configs'),
+      activeBlock: false
+    }
+  },
+  components: {
+    Breadcrumbs
+  },
+  methods: {
+    async addAdmin() {
+      try {
+        this.activeBlock = true;
+        const salt = CryptoJS.lib.WordArray.random(16);
+        const hash = CryptoJS.SHA256(this.password + salt).toString();
+        const resAPI = await fetch("https://gateway.cloudrestfulapi.com/api/user/", {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json','client-token-key':this.configs.key},
+          body: JSON.stringify({
+            data: {
+              firstname: this.firstname,
+              lastname: this.lastname,
+              phone: this.phone,
+              email: this.email,
+              username: this.username,
+              password: hash,
+              parent: this.configs.siteID,
+              salt: salt.toString(),
+              role: "admin",
+            },
+            options: {
+              fieldType: [],
+              uniqueFields: [
+                ["username"]
+              ]
+            }
+          })
+        });
+        const finalRes   = await resAPI.json();
+
+        if(resAPI.status===200) {
+          // Send Email
+          const emailData = {
+            email: 'manonsanoi@gmail.com',
+            name: "User Detail",
+            content: `
+              <table style="border-collapse: collapse; width: 100%; color:#000000;">
+                <tr style="background-color: #f2f2f2; ">
+                  <th style="border: 1px solid #dddddd; text-align: left; padding: 8px;">Field</th>
+                  <th style="border: 1px solid #dddddd; text-align: left; padding: 8px;">Value</th>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">First Name</td>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">${this.firstname}</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">Last Name</td>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">${this.lastname}</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">Phone</td>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">${this.phone}</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">Email</td>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">${this.email}</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">Username</td>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">${this.username}</td>
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">Password</td>
+                  <td style="border: 1px solid #dddddd; text-align: left; padding: 8px;">${this.password}</td>
+                </tr>
+              </table>
+            `,
+          };
+
+          await sendEmail(emailData,'new-template');
+          window.location.href = "/school/user"
+        }
+
+        console.log(finalRes);
+      } catch (error) {
+        console.log(error)
+      }
+    },
+    generateRandomPassword() {
+      const length = 12; // Set the desired length of the random password
+      const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_-+=<>?"; // Define the character pool
+      let randomPassword = "";
+      for (let i = 0; i < length; i++) {
+        const randomIndex = Math.floor(Math.random() * charset.length);
+        randomPassword += charset[randomIndex];
+      }
+      this.password = randomPassword;
+    },
+  },
+  setup() {
+  },
+  mounted() {
+  }
+}
+</script>
+
+<template>
+
+  <breadcrumbs
+  :navigation="
+  [
+    {
+      name: 'ย้อนกลับ',
+      link: '/school/user',
+      style: 'chevron-left'
+    }
+  ]"
+  /> 
+
+  <div class="flex-1 bg-gray-100 pt-2 pb-5">
+    <div class="mt-2">
+        <div class="mx-auto max-w-7xl px-6 sm:px-6 lg:px-6">
+            <div class="space-y-6 sm:px-6 lg:col-span-9 lg:px-0">
+              <form @submit.prevent="addAdmin">
+                <section aria-labelledby="payment-details-heading" class="relative" :data-content="'กำลังติดต่อฐานข้อมูล กรุณารอสักครู่.....'" :class="[(activeBlock?'isblock' : 'isunblock')]">
+                  
+                    <div class="shadow sm:overflow-hidden sm:rounded-md">
+                      <div class="bg-white py-6 px-4 sm:p-6">
+                        <div>
+                          <h2 id="payment-details-heading" class="text-lg font-medium leading-6 text-gray-900">ข้อมูลส่วนตัว</h2>
+                          <p class="mt-1 text-sm text-gray-500">กรอกข้อมูลของหลักสูตรให้ครบถ้วน.</p>
+                        </div>
+
+                        <div class="mt-6 grid grid-cols-4 gap-6">
+
+                          <div class="col-span-4 sm:col-span-2">
+                            <label for="firstname" class="block text-sm font-medium text-gray-700">ชื่อ</label>
+                            <input 
+                            v-model="firstname" 
+                            type="text" name="firstname" id="firstname" autocomplete="firstname" 
+                            class="mt-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-gray-900 sm:text-sm">
+                          </div>	
+
+                          <div class="col-span-4 sm:col-span-2">
+                            <label for="lastname" class="block text-sm font-medium text-gray-700">นามสกุล</label>
+                            <input 
+                            v-model="lastname" 
+                            type="text" name="lastname" id="lastname" autocomplete="lastname" 
+                            class="mt-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-gray-900 sm:text-sm">
+                          </div>
+
+                        </div>
+
+                        <div class="mt-6 grid grid-cols-6 gap-6">
+
+                          <div class="col-span-4 sm:col-span-3">
+                            <label for="phone" class="block text-sm font-medium text-gray-700">เบอร์โทร</label>
+                            <input 
+                            v-model="phone" 
+                            type="text" name="phone" id="phone" autocomplete="phone" 
+                            class="mt-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-gray-900 sm:text-sm">
+                          </div>
+
+                          <div class="col-span-4 sm:col-span-3">
+                            <label for="email" class="block text-sm font-medium text-gray-700">อีเมล์</label>
+                            <input 
+                            v-model="email"
+                            type="text" name="email" id="email" autocomplete="email" 
+                            class="mt-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-gray-900 sm:text-sm">
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+
+
+                    <div class="shadow sm:overflow-hidden sm:rounded-md mt-8">
+                      <div class="bg-white py-6 px-4 sm:p-6">
+                        <div>
+                          <h2 id="payment-details-heading" class="text-lg font-medium leading-6 text-gray-900">ข้อมูลบัญชี</h2>
+                          <p class="mt-1 text-sm text-gray-500">กรอกข้อมูลของหลักสูตรให้ครบถ้วน.</p>
+                        </div>
+
+                        <div class="mt-6 grid grid-cols-6 gap-6">
+
+                            <div class="col-span-4 sm:col-span-3">
+                              <label for="username" class="block text-sm font-medium text-gray-700">ชื่อบัญชีผู้ใช้งาน</label>
+                              <input 
+                              v-model="username" 
+                              type="text" name="username" id="username" autocomplete="username" 
+                              class="mt-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-gray-900 sm:text-sm">
+                            </div>
+
+                            <div class="col-span-4 sm:col-span-3">
+                              <label for="password" class="block text-sm font-medium text-gray-700">รหัสผ่าน</label>
+                              <div class="flex">
+                                  <input
+                                      v-model="password"
+                                      type="text"
+                                      name="password"
+                                      id="password"
+                                      autocomplete="password"
+                                      class="mt-1 flex-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-gray-900 focus:outline-none focus:ring-gray-900 sm:text-sm"
+                                  />
+                                  <button
+                                      type="button"
+                                      class="ml-2 px-3 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                                      @click="generateRandomPassword"
+                                  >
+                                      Generate
+                                  </button>
+                              </div>
+                            </div>
+                        
+                        </div>
+
+                      </div>
+                    </div>
+
+                </section>
+
+                <section aria-labelledby="plan-heading" class="mt-8">
+                  <div class="shadow sm:overflow-hidden sm:rounded-md">
+                      <div class="bg-gray-50 px-4 py-3 text-right sm:px-6 border-t">
+                        <button type="submit" class="inline-flex justify-center rounded-md border border-transparent bg-gray-800 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2">
+                          <font-awesome-icon :icon="['fas','save']" class="pr-2 pl-2"/>บันทึกข้อมูล</button>
+                      </div>
+                  </div>
+                </section>
+              </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+</template>

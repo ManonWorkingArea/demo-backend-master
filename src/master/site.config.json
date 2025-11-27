@@ -1,0 +1,14 @@
+[
+  {
+    "hostname": "localhost",
+    "siteName": "My Site",
+    "siteLogo": "/images/logo.png",
+    "plugins": ["cms", "shop"]
+  },
+  {
+    "hostname": "example.net",
+    "siteName": "My Other Site",
+    "siteLogo": "/images/logo2.png",
+    "plugins": ["blog", "gallery"]
+  }
+]

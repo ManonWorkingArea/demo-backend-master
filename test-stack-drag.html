@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FileManager Multi-File Stack Drag Preview</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f8f9fa; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .file-item {
+            width: 140px; height: 100px; background: linear-gradient(135deg, #fff, #f8f9fa);
+            border: 2px solid #dee2e6; margin: 10px; display: inline-block; position: relative;
+            cursor: move; border-radius: 12px; user-select: none; transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .file-item:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .file-item.selected { 
+            border-color: #007bff; background: linear-gradient(135deg, #e7f3ff, #cce7ff);
+            box-shadow: 0 0 0 3px rgba(0,123,255,0.2);
+        }
+        .file-item.dragging { opacity: 0.6; transform: scale(0.95) rotate(2deg); }
+        .folder {
+            width: 250px; height: 180px; background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            border: 3px dashed #ffc107; margin: 20px; display: inline-block; text-align: center;
+            line-height: 180px; font-weight: bold; border-radius: 15px; transition: all 0.3s;
+            font-size: 18px; color: #856404;
+        }
+        .folder.drop-highlight { 
+            background: linear-gradient(135deg, #d4edda, #a3d977); border-color: #28a745;
+            transform: scale(1.05); box-shadow: 0 8px 25px rgba(40,167,69,0.3);
+        }
+        .checkbox { 
+            position: absolute; top: 8px; left: 8px; transform: scale(1.2);
+            accent-color: #007bff;
+        }
+        .file-content { 
+            padding: 15px; text-align: center; height: 100%; 
+            display: flex; flex-direction: column; justify-content: center;
+        }
+        .file-icon { font-size: 24px; margin-bottom: 8px; }
+        .file-name { font-size: 12px; font-weight: 600; color: #495057; margin: 0; }
+        .controls { 
+            margin: 20px 0; padding: 20px; background: white; border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .btn {
+            background: #007bff; color: white; border: none; padding: 10px 20px;
+            border-radius: 8px; cursor: pointer; margin: 5px; font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #0056b3; transform: translateY(-1px); }
+        .btn.danger { background: #dc3545; }
+        .btn.danger:hover { background: #c82333; }
+        .btn.success { background: #28a745; }
+        .btn.success:hover { background: #1e7e34; }
+        .status { 
+            margin: 15px 0; padding: 15px; background: #e9ecef; border-radius: 8px;
+            font-size: 16px; font-weight: 600;
+        }
+        .debug { 
+            position: fixed; bottom: 10px; right: 10px; background: #000; color: #fff;
+            padding: 15px; max-width: 400px; font-size: 11px; overflow-y: auto;
+            max-height: 300px; border-radius: 8px; font-family: 'Courier New', monospace;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; }
+        .section { 
+            background: white; padding: 20px; border-radius: 12px; margin: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .preview-area {
+            min-height: 200px; border: 2px dashed #dee2e6; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            background: #f8f9fa; margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 FileManager Multi-File Stack Drag Preview</h1>
+            <p>ทดสอบการลากไฟล์หลายๆไฟล์แบบ Stack ซ้อนกัน</p>
+        </div>
+        
+        <div class="controls">
+            <h3>📋 คำแนะนำการทดสอบ:</h3>
+            <ol>
+                <li>✅ <strong>เลือกไฟล์หลายๆไฟล์</strong> โดยคลิก checkbox (ต้องเลือกมากกว่า 1 ไฟล์)</li>
+                <li>🎯 <strong>ลากไฟล์ใดไฟล์หนึ่งที่เลือกไว้</strong> จะเห็น stack effect</li>
+                <li>📁 <strong>วางลงในโฟลเดอร์</strong> เพื่อทดสอบการทำงาน</li>
+                <li>🔍 <strong>ดู Debug Log</strong> เพื่อติดตามการทำงาน</li>
+            </ol>
+            
+            <div class="status">
+                <strong>📊 Status:</strong> 
+                <span id="status">เลือกไฟล์และลองลาก</span>
+            </div>
+            
+            <button class="btn" onclick="selectAll()">📋 เลือกทั้งหมด</button>
+            <button class="btn danger" onclick="clearSelection()">❌ ยกเลิกการเลือก</button>
+            <button class="btn success" onclick="previewDragImage()">👁️ ดู Drag Preview</button>
+            <button class="btn" onclick="clearDebug()">🧹 ล้าง Debug</button>
+        </div>
+        
+        <div class="section">
+            <h3>📁 Files:</h3>
+            <div class="grid">
+                <div class="file-item" data-file-id="document1" draggable="true">
+                    <input type="checkbox" class="checkbox" />
+                    <div class="file-content">
+                        <div class="file-icon">📄</div>
+                        <p class="file-name">Document.pdf</p>
+                    </div>
+                </div>
+                <div class="file-item" data-file-id="image1" draggable="true">
+                    <input type="checkbox" class="checkbox" />
+                    <div class="file-content">
+                        <div class="file-icon">🖼️</div>
+                        <p class="file-name">Image.jpg</p>
+                    </div>
+                </div>
+                <div class="file-item" data-file-id="video1" draggable="true">
+                    <input type="checkbox" class="checkbox" />
+                    <div class="file-content">
+                        <div class="file-icon">🎥</div>
+                        <p class="file-name">Video.mp4</p>
+                    </div>
+                </div>
+                <div class="file-item" data-file-id="audio1" draggable="true">
+                    <input type="checkbox" class="checkbox" />
+                    <div class="file-content">
+                        <div class="file-icon">🎵</div>
+                        <p class="file-name">Audio.mp3</p>
+                    </div>
+                </div>
+                <div class="file-item" data-file-id="presentation1" draggable="true">
+                    <input type="checkbox" class="checkbox" />
+                    <div class="file-content">
+                        <div class="file-icon">📊</div>
+                        <p class="file-name">Presentation.pptx</p>
+                    </div>
+                </div>
+                <div class="file-item" data-file-id="spreadsheet1" draggable="true">
+                    <input type="checkbox" class="checkbox" />
+                    <div class="file-content">
+                        <div class="file-icon">📈</div>
+                        <p class="file-name">Spreadsheet.xlsx</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h3>📂 Target Folder:</h3>
+            <div class="folder" id="target-folder">
+                📁 วางไฟล์ที่นี่<br>
+                <small style="font-size: 14px; font-weight: normal;">ลากไฟล์มาวางเพื่อย้าย</small>
+            </div>
+            
+            <div class="preview-area" id="preview-area">
+                <p style="color: #6c757d;">👁️ คลิก "ดู Drag Preview" เพื่อดู Stack Effect</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="debug" id="debug-log">
+        <strong>🔍 Debug Log:</strong><br>
+        <button class="btn" onclick="clearDebug()" style="margin-bottom: 10px; padding: 5px 10px; font-size: 10px;">Clear</button><br>
+    </div>
+
+    <script>
+        let selectedFiles = new Set();
+        let draggedItem = null;
+        
+        function debugLog(...args) {
+            const timestamp = new Date().toLocaleTimeString();
+            console.log('[FileManager Debug]', ...args);
+            const debugDiv = document.getElementById('debug-log');
+            const message = `[${timestamp}] ${args.join(' ')}`;
+            debugDiv.innerHTML += message + '<br>';
+            debugDiv.scrollTop = debugDiv.scrollHeight;
+        }
+        
+        // สร้าง virtual drag image สำหรับ multi-file drag (เหมือนใน FileManager)
+        function createMultiDragImage(fileIds) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const fileCount = fileIds.length;
+            const maxStacks = Math.min(fileCount, 4);
+            
+            canvas.width = 240;
+            canvas.height = 200;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            for (let i = maxStacks - 1; i >= 0; i--) {
+                const offset = i * 8;
+                const scale = 1 - (i * 0.05);
+                const alpha = 0.9 - (i * 0.15);
+                
+                const width = 140 * scale;
+                const height = 100 * scale;
+                const x = 40 + offset;
+                const y = 30 + offset;
+                
+                // Shadow
+                ctx.fillStyle = `rgba(0, 0, 0, ${0.15 - i * 0.03})`;
+                ctx.fillRect(x + 4, y + 4, width, height);
+                
+                // Background gradient
+                const gradient = ctx.createLinearGradient(x, y, x, y + height);
+                gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+                gradient.addColorStop(1, `rgba(248, 249, 250, ${alpha})`);
+                ctx.fillStyle = gradient;
+                ctx.fillRect(x, y, width, height);
+                
+                // Rounded border
+                ctx.strokeStyle = `rgba(0, 123, 255, ${alpha})`;
+                ctx.lineWidth = 2;
+                const radius = 8;
+                ctx.beginPath();
+                ctx.moveTo(x + radius, y);
+                ctx.lineTo(x + width - radius, y);
+                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                ctx.lineTo(x + width, y + height - radius);
+                ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                ctx.lineTo(x + radius, y + height);
+                ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                ctx.lineTo(x, y + radius);
+                ctx.quadraticCurveTo(x, y, x + radius, y);
+                ctx.closePath();
+                ctx.stroke();
+                
+                if (i === 0) {
+                    ctx.fillStyle = '#6c757d';
+                    ctx.font = 'bold 28px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('📄', x + width/2, y + height/2 + 8);
+                    
+                    if (fileCount > 1) {
+                        ctx.font = '12px Arial';
+                        ctx.fillStyle = '#868e96';
+                        ctx.fillText('..', x + width - 20, y + height - 10);
+                    }
+                }
+            }
+            
+            // Counter text
+            ctx.fillStyle = '#495057';
+            ctx.font = 'bold 18px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${fileCount} ไฟล์`, 120, 170);
+            
+            // Badge
+            const badgeX = 190, badgeY = 35, badgeRadius = 18;
+            
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.beginPath();
+            ctx.arc(badgeX + 2, badgeY + 2, badgeRadius, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            const badgeGradient = ctx.createRadialGradient(badgeX, badgeY, 0, badgeX, badgeY, badgeRadius);
+            badgeGradient.addColorStop(0, '#28a745');
+            badgeGradient.addColorStop(1, '#1e7e34');
+            ctx.fillStyle = badgeGradient;
+            ctx.beginPath();
+            ctx.arc(badgeX, badgeY, badgeRadius, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 14px Arial';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+            ctx.shadowBlur = 2;
+            ctx.fillText(fileCount.toString(), badgeX, badgeY + 5);
+            ctx.shadowBlur = 0;
+            
+            return canvas;
+        }
+        
+        function updateStatus() {
+            const status = document.getElementById('status');
+            status.textContent = `เลือกไฟล์: ${selectedFiles.size} ไฟล์`;
+        }
+        
+        function clearDebug() {
+            document.getElementById('debug-log').innerHTML = '<strong>🔍 Debug Log:</strong><br><button class="btn" onclick="clearDebug()" style="margin-bottom: 10px; padding: 5px 10px; font-size: 10px;">Clear</button><br>';
+        }
+        
+        function selectAll() {
+            document.querySelectorAll('.checkbox').forEach(checkbox => {
+                if (!checkbox.checked) {
+                    checkbox.checked = true;
+                    checkbox.dispatchEvent(new Event('change'));
+                }
+            });
+        }
+        
+        function clearSelection() {
+            document.querySelectorAll('.checkbox').forEach(checkbox => {
+                if (checkbox.checked) {
+                    checkbox.checked = false;
+                    checkbox.dispatchEvent(new Event('change'));
+                }
+            });
+        }
+        
+        function previewDragImage() {
+            if (selectedFiles.size > 1) {
+                const canvas = createMultiDragImage(Array.from(selectedFiles));
+                const previewArea = document.getElementById('preview-area');
+                previewArea.innerHTML = '';
+                previewArea.appendChild(canvas);
+                canvas.style.border = '2px solid #007bff';
+                canvas.style.borderRadius = '8px';
+                debugLog(`Preview created for ${selectedFiles.size} files stack`);
+            } else {
+                alert('กรุณาเลือกไฟล์มากกว่า 1 ไฟล์เพื่อดู Stack Effect');
+            }
+        }
+        
+        // Event handlers
+        document.querySelectorAll('.checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                const fileItem = e.target.closest('.file-item');
+                const fileId = fileItem.dataset.fileId;
+                
+                if (e.target.checked) {
+                    selectedFiles.add(fileId);
+                    fileItem.classList.add('selected');
+                } else {
+                    selectedFiles.delete(fileId);
+                    fileItem.classList.remove('selected');
+                }
+                
+                updateStatus();
+                debugLog(`File ${fileId} ${e.target.checked ? 'selected' : 'deselected'}, total: ${selectedFiles.size}`);
+            });
+        });
+        
+        document.querySelectorAll('.file-item').forEach(fileItem => {
+            fileItem.addEventListener('dragstart', (e) => {
+                const fileId = fileItem.dataset.fileId;
+                
+                debugLog('=== Drag Start ===');
+                debugLog(`File: ${fileId}, Selected count: ${selectedFiles.size}`);
+                
+                if (selectedFiles.size > 1 && selectedFiles.has(fileId)) {
+                    debugLog('✅ Multi-drag with stack effect');
+                    draggedItem = 'multi';
+                    
+                    const selectedIds = Array.from(selectedFiles);
+                    e.dataTransfer.setData('text/plain', JSON.stringify({
+                        type: 'multiple',
+                        fileIds: selectedIds,
+                        source: 'internal'
+                    }));
+                    
+                    // Set custom drag image
+                    const dragImage = createMultiDragImage(selectedIds);
+                    e.dataTransfer.setDragImage(dragImage, 120, 100);
+                    
+                    selectedIds.forEach(id => {
+                        const element = document.querySelector(`[data-file-id="${id}"]`);
+                        if (element) element.classList.add('dragging');
+                    });
+                    
+                } else {
+                    debugLog('❌ Single drag');
+                    draggedItem = fileId;
+                    fileItem.classList.add('dragging');
+                }
+            });
+            
+            fileItem.addEventListener('dragend', (e) => {
+                debugLog('Drag ended');
+                document.querySelectorAll('.file-item').forEach(item => {
+                    item.classList.remove('dragging');
+                });
+                draggedItem = null;
+            });
+        });
+        
+        // Folder drop handlers
+        const folder = document.getElementById('target-folder');
+        folder.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            folder.classList.add('drop-highlight');
+        });
+        
+        folder.addEventListener('dragleave', (e) => {
+            folder.classList.remove('drop-highlight');
+        });
+        
+        folder.addEventListener('drop', (e) => {
+            e.preventDefault();
+            folder.classList.remove('drop-highlight');
+            
+            try {
+                const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+                
+                if (dragData.type === 'multiple') {
+                    debugLog(`🎉 Multi-drop success: ${dragData.fileIds.length} files`);
+                    alert(`✅ ย้ายไฟล์ ${dragData.fileIds.length} ไฟล์สำเร็จ!\n${dragData.fileIds.join(', ')}`);
+                    
+                    // Hide moved files
+                    dragData.fileIds.forEach(id => {
+                        const element = document.querySelector(`[data-file-id="${id}"]`);
+                        if (element) element.style.display = 'none';
+                    });
+                }
+            } catch (error) {
+                debugLog('Drop error:', error);
+            }
+        });
+        
+        debugLog('🚀 Stack drag test initialized');
+        updateStatus();
+    </script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+<template><div class="hr-component"><h4><i class="fas fa-dollar-sign"></i> โครงสร้างเงินเดือน</h4><p>กำหนดโครงสร้างและอัตราเงินเดือน</p></div></template>
+<script>export default { name: 'SalaryStructure' }</script>
