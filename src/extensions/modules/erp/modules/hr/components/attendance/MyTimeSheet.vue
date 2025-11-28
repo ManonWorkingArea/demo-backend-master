@@ -1,2 +1,0 @@
-<template><div class="hr-component"><h4><i class="fas fa-calendar-user"></i> เวลาทำงานของฉัน</h4><p>ดูข้อมูลเวลาทำงานส่วนตัว</p><div class="table-responsive"><table class="table table-bordered"><thead><tr><th>วันที่</th><th>เข้างาน</th><th>ออกงาน</th><th>ชั่วโมงทำงาน</th><th>สถานะ</th></tr></thead><tbody><tr><td colspan="5" class="text-center text-muted">ไม่มีข้อมูล</td></tr></tbody></table></div></div></template>
-<script>export default { name: 'MyTimeSheet' }</script>

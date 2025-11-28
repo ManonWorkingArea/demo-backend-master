@@ -1,1 +1,0 @@
-exports.key = 'DU1eYMDG7j8yb199YDPg4';

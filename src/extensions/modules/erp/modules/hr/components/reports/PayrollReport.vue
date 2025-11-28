@@ -1,2 +1,0 @@
-<template><div class="hr-component"><h4><i class="fas fa-money-check-alt"></i> รายงานเงินเดือน</h4><p>รายงานการจ่ายเงินเดือน</p></div></template>
-<script>export default { name: 'PayrollReport' }</script>

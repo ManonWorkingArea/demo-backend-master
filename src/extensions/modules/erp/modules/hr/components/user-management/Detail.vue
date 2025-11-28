@@ -1,2 +1,0 @@
-<template><div class="hr-component"><h4><i class="fas fa-eye"></i> รายละเอียด User Account</h4><p>ดูข้อมูลบัญชีผู้ใช้และสิทธิ์การเข้าถึง</p></div></template>
-<script>export default { name: 'UserDetail' }</script>

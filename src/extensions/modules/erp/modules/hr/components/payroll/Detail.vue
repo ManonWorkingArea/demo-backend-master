@@ -1,2 +1,0 @@
-<template><div class="hr-component"><h4><i class="fas fa-eye"></i> รายละเอียดเงินเดือน</h4><p>ดูรายละเอียดการจ่ายเงินเดือน</p></div></template>
-<script>export default { name: 'PayrollDetail' }</script>
